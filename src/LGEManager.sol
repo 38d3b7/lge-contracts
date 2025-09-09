@@ -16,14 +16,7 @@ contract LGEManager {
     IPoolManager private immutable _poolManager;
     address private immutable _create2Deployer;
     uint160 private immutable FLAGS =
-        uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG |
-                Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-                Hooks.AFTER_ADD_LIQUIDITY_FLAG |
-                Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
-                Hooks.AFTER_REMOVE_LIQUIDITY_FLAG |
-                Hooks.BEFORE_SWAP_FLAG
-        );
+        uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
 
     struct TokenConfig {
         address tokenAdmin;
@@ -45,10 +38,7 @@ contract LGEManager {
     }
 
     event TokenCreated(
-        address msgSender,
-        address indexed tokenAddress,
-        address indexed hookAddress,
-        PoolId indexed poolId
+        address msgSender, address indexed tokenAddress, address indexed hookAddress, PoolId indexed poolId
     );
 
     constructor(IPoolManager poolManager_, address create2Deployer_) {
@@ -56,9 +46,7 @@ contract LGEManager {
         _create2Deployer = create2Deployer_;
     }
 
-    function deployToken(
-        DeploymentConfig calldata config
-    )
+    function deployToken(DeploymentConfig calldata config)
         external
         returns (address tokenAddress, address hookAddress, PoolId poolId)
     {
@@ -73,12 +61,8 @@ contract LGEManager {
             )
         );
 
-        bytes memory constructorArgs = abi.encode(
-            _poolManager,
-            tokenAddress,
-            block.number,
-            config.poolConfig.initialSqrtPriceX96
-        );
+        bytes memory constructorArgs =
+            abi.encode(_poolManager, tokenAddress, block.number, config.poolConfig.initialSqrtPriceX96);
 
         (, bytes32 salt) = HookMiner.find(
             // TODO: should we remove this and set as a _create2Deployer on the mainnet?
@@ -89,12 +73,7 @@ contract LGEManager {
         );
 
         hookAddress = address(
-            new LGEHook{salt: salt}(
-                _poolManager,
-                tokenAddress,
-                block.number,
-                config.poolConfig.initialSqrtPriceX96
-            )
+            new LGEHook{salt: salt}(_poolManager, tokenAddress, block.number, config.poolConfig.initialSqrtPriceX96)
         );
 
         PoolKey memory poolKey = PoolKey({

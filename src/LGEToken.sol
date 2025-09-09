@@ -69,11 +69,7 @@ contract LGEToken is ERC20, ERC20Burnable {
         emit UpdateMetadata(metadata_);
     }
 
-    function _update(
-        address from,
-        address to,
-        uint256 value
-    ) internal override(ERC20) {
+    function _update(address from, address to, uint256 value) internal override(ERC20) {
         super._update(from, to, value);
     }
 

@@ -12,7 +12,8 @@ import {BalanceDelta, toBalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 import {StateLibrary} from "v4-periphery/lib/v4-core/src/libraries/StateLibrary.sol";
 import {Actions} from "v4-periphery/src/libraries/Actions.sol";
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
+// import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "v4-periphery/lib/v4-core/test/utils/LiquidityAmounts.sol";
 import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
 
@@ -32,13 +33,10 @@ contract LGEHook is BaseHook, IUnlockCallback {
     error LGEFinished();
     error WrongPool();
     error InvalidPrice();
+    error NoTokensAvailable();
+    error InvalidAmount();
 
-    event HookModifyLiquidity(
-        bytes32 indexed poolId,
-        address indexed sender,
-        int128 amount0,
-        int128 amount1
-    );
+    event HookModifyLiquidity(bytes32 indexed poolId, address indexed sender, int128 amount0, int128 amount1);
 
     struct CallbackData {
         address sender;
@@ -70,46 +68,35 @@ contract LGEHook is BaseHook, IUnlockCallback {
     bool public isLgeFinished;
     bool public isLgeSuccessful;
 
-    constructor(
-        IPoolManager poolManager_,
-        address token_,
-        uint256 startBlock_,
-        uint160 initialSqrtPriceX96_
-    ) BaseHook(poolManager_) {
+    constructor(IPoolManager poolManager_, address token_, uint256 startBlock_, uint160 initialSqrtPriceX96_)
+        BaseHook(poolManager_)
+    {
         token = LGEToken(token_);
         startBlock = startBlock_;
         baseTick = TickMath.getTickAtSqrtPrice(initialSqrtPriceX96_);
     }
 
-    function getHookPermissions()
-        public
-        pure
-        override
-        returns (Hooks.Permissions memory)
-    {
-        return
-            Hooks.Permissions({
-                beforeInitialize: true,
-                afterInitialize: false,
-                beforeAddLiquidity: true,
-                afterAddLiquidity: true,
-                beforeRemoveLiquidity: true,
-                afterRemoveLiquidity: true,
-                beforeSwap: true,
-                afterSwap: false,
-                beforeDonate: false,
-                afterDonate: false,
-                beforeSwapReturnDelta: false,
-                afterSwapReturnDelta: false,
-                afterAddLiquidityReturnDelta: false,
-                afterRemoveLiquidityReturnDelta: false
-            });
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: true,
+            afterInitialize: false,
+            beforeAddLiquidity: false,
+            afterAddLiquidity: false,
+            beforeRemoveLiquidity: true,
+            afterRemoveLiquidity: false,
+            beforeSwap: true,
+            afterSwap: false,
+            beforeDonate: false,
+            afterDonate: false,
+            beforeSwapReturnDelta: false,
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
+        });
     }
 
-    function addLiquidity() external payable {
-        (uint160 sqrtPriceX96, int24 currentTick, , ) = poolManager.getSlot0(
-            poolKey.toId()
-        );
+    function addLiquidity(uint256 amountOfTokens) external payable {
+        (uint160 sqrtPriceX96, int24 currentTick,,) = poolManager.getSlot0(poolKey.toId());
 
         if (sqrtPriceX96 == 0) revert PoolNotInitialized();
         if (isLgeFinished) revert LGEFinished();
@@ -117,34 +104,28 @@ contract LGEHook is BaseHook, IUnlockCallback {
         uint256 ethPortion = msg.value / 2;
         uint256 batchSize = tokensAvailable();
 
-        require(batchSize > 0, "No tokens available");
+        if (batchSize == 0) revert NoTokensAvailable();
+        if (amountOfTokens > batchSize) revert InvalidAmount();
 
-        (uint256 ethExpected, ) = LGECalculationsLibrary.getETHPriceFromRange(
-            batchSize,
-            baseTick,
-            currentTick,
-            poolKey.tickSpacing
-        );
-        require((ethPortion == ethExpected), "ETH portion mismatch");
+        // (uint256 ethExpected, ) = LGECalculationsLibrary.getETHPriceFromRange(
+        //     batchSize,
+        //     amountOfTokens,
+        //     baseTick,
+        //     currentTick,
+        //     poolKey.tickSpacing
+        // );
 
-        (int24 tickLower, int24 tickUpper, ) = LGECalculationsLibrary
-            .ticksForClaim(
-                batchSize,
-                baseTick,
-                currentTick,
-                poolKey.tickSpacing
-            );
+        (int24 tickLower, int24 tickUpper,) =
+            LGECalculationsLibrary.ticksForClaim(batchSize, baseTick, currentTick, poolKey.tickSpacing);
 
-        uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
-            sqrtPriceX96,
-            TickMath.getSqrtPriceAtTick(tickLower),
-            TickMath.getSqrtPriceAtTick(tickUpper),
-            ethPortion,
-            batchSize
+        (uint256 ethExpected, uint128 liquidity) = LGECalculationsLibrary.getAmountsForLiquidity(
+            sqrtPriceX96, tickLower, tickUpper, currentTick, amountOfTokens
         );
 
-        token.mint(address(this), batchSize);
-        token.approve(address(poolManager), batchSize);
+        if (ethPortion != ethExpected) revert InvalidPrice();
+
+        token.mint(address(this), amountOfTokens);
+        token.approve(address(poolManager), amountOfTokens);
 
         ModifyLiquidityParams memory params = ModifyLiquidityParams({
             tickLower: tickLower,
@@ -153,17 +134,11 @@ contract LGEHook is BaseHook, IUnlockCallback {
             salt: bytes32(0)
         });
 
-        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = _modifyLiquidity(
-            abi.encode(params)
-        );
+        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = _modifyLiquidity(abi.encode(params));
 
         BalanceDelta principalDelta = callerDelta - feesAccrued;
-        uint256 ethUsed = principalDelta.amount0() < 0
-            ? uint256(uint128(-principalDelta.amount0()))
-            : 0;
-        uint256 tokensUsed = principalDelta.amount1() < 0
-            ? uint256(uint128(-principalDelta.amount1()))
-            : 0;
+        uint256 ethUsed = principalDelta.amount0() < 0 ? uint256(uint128(-principalDelta.amount0())) : 0;
+        uint256 tokensUsed = principalDelta.amount1() < 0 ? uint256(uint128(-principalDelta.amount1())) : 0;
 
         userStates[msg.sender].ethToLiquidityDeposited += ethUsed;
         userStates[msg.sender].remainingEthDeposited += (msg.value - ethUsed);
@@ -174,29 +149,18 @@ contract LGEHook is BaseHook, IUnlockCallback {
         totalLiquidityEscrowed += tokensUsed;
     }
 
-    function _modifyLiquidity(
-        bytes memory params
-    )
+    function _modifyLiquidity(bytes memory params)
         internal
         virtual
         returns (BalanceDelta callerDelta, BalanceDelta feesAccrued)
     {
         (callerDelta, feesAccrued) = abi.decode(
-            poolManager.unlock(
-                abi.encode(
-                    CallbackData(
-                        msg.sender,
-                        abi.decode(params, (ModifyLiquidityParams))
-                    )
-                )
-            ),
+            poolManager.unlock(abi.encode(CallbackData(msg.sender, abi.decode(params, (ModifyLiquidityParams))))),
             (BalanceDelta, BalanceDelta)
         );
     }
 
-    function unlockCallback(
-        bytes calldata rawData
-    )
+    function unlockCallback(bytes calldata rawData)
         public
         virtual
         override
@@ -207,19 +171,13 @@ contract LGEHook is BaseHook, IUnlockCallback {
 
         data.params.salt = keccak256(abi.encode(data.sender, data.params.salt));
 
-        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager
-            .modifyLiquidity(poolKey, data.params, "");
+        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(poolKey, data.params, "");
 
         BalanceDelta principalDelta = callerDelta - feesAccrued;
 
         if (principalDelta.amount0() < 0) {
             // If amount0 is negative, send tokens from the sender to the pool
-            poolKey.currency0.settle(
-                poolManager,
-                address(this),
-                uint256(int256(-principalDelta.amount0())),
-                false
-            );
+            poolKey.currency0.settle(poolManager, address(this), uint256(int256(-principalDelta.amount0())), false);
         } else {
             // If amount0 is positive, send tokens from the pool to the sender
             poolKey.currency0.take(
@@ -232,12 +190,7 @@ contract LGEHook is BaseHook, IUnlockCallback {
 
         if (principalDelta.amount1() < 0) {
             // If amount1 is negative, send tokens from the sender to the pool
-            poolKey.currency1.settle(
-                poolManager,
-                address(this),
-                uint256(int256(-principalDelta.amount1())),
-                false
-            );
+            poolKey.currency1.settle(poolManager, address(this), uint256(int256(-principalDelta.amount1())), false);
         } else {
             // If amount1 is positive, send tokens from the pool to the sender
             poolKey.currency1.take(
@@ -251,34 +204,20 @@ contract LGEHook is BaseHook, IUnlockCallback {
         _handleAccruedFees(data, callerDelta, feesAccrued);
 
         emit HookModifyLiquidity(
-            PoolId.unwrap(poolKey.toId()),
-            data.sender,
-            principalDelta.amount0(),
-            principalDelta.amount1()
+            PoolId.unwrap(poolKey.toId()), data.sender, principalDelta.amount0(), principalDelta.amount1()
         );
 
         // Return both deltas so that slippage checks can be done on the principal delta
         return abi.encode(callerDelta, feesAccrued);
     }
 
-    function _handleAccruedFees(
-        CallbackData memory data,
-        BalanceDelta callerDelta,
-        BalanceDelta feesAccrued
-    ) internal virtual {
+    function _handleAccruedFees(CallbackData memory data, BalanceDelta callerDelta, BalanceDelta feesAccrued)
+        internal
+        virtual
+    {
         // Send any accrued fees to the sender
-        poolKey.currency0.take(
-            poolManager,
-            data.sender,
-            uint256(int256(feesAccrued.amount0())),
-            false
-        );
-        poolKey.currency1.take(
-            poolManager,
-            data.sender,
-            uint256(int256(feesAccrued.amount1())),
-            false
-        );
+        poolKey.currency0.take(poolManager, data.sender, uint256(int256(feesAccrued.amount0())), false);
+        poolKey.currency1.take(poolManager, data.sender, uint256(int256(feesAccrued.amount1())), false);
     }
 
     function tokensAvailable() public view returns (uint256 batchSize) {
@@ -292,19 +231,13 @@ contract LGEHook is BaseHook, IUnlockCallback {
         if (blocksPassed >= STREAM_BLOCKS) {
             totalTokensStreamed = TOTAL_TOKENS_TO_STREAM;
         } else {
-            totalTokensStreamed =
-                (TOTAL_TOKENS_TO_STREAM * blocksPassed) /
-                STREAM_BLOCKS;
+            totalTokensStreamed = (TOTAL_TOKENS_TO_STREAM * blocksPassed) / STREAM_BLOCKS;
         }
 
         batchSize = totalTokensStreamed - totalLiquidityEscrowed;
     }
 
-    function _beforeInitialize(
-        address,
-        PoolKey calldata key,
-        uint160
-    ) internal override returns (bytes4) {
+    function _beforeInitialize(address, PoolKey calldata key, uint160) internal override returns (bytes4) {
         // Check if the pool key is already initialized
         if (address(poolKey.hooks) != address(0)) revert AlreadyInitialized();
 
@@ -313,50 +246,24 @@ contract LGEHook is BaseHook, IUnlockCallback {
         return this.beforeInitialize.selector;
     }
 
-    function _beforeSwap(
-        address,
-        PoolKey calldata key,
-        SwapParams calldata,
-        bytes calldata
-    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        if (PoolId.unwrap(poolKey.toId()) != PoolId.unwrap(key.toId()))
+    function _beforeSwap(address, PoolKey calldata key, SwapParams calldata, bytes calldata)
+        internal
+        override
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        if (PoolId.unwrap(poolKey.toId()) != PoolId.unwrap(key.toId())) {
             revert WrongPool();
+        }
 
         if (startBlock + TOTAL_BLOCKS < block.number) revert SwapForbidden();
 
-        return (
-            BaseHook.beforeSwap.selector,
-            BeforeSwapDeltaLibrary.ZERO_DELTA,
-            0
-        );
+        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    // function _beforeAddLiquidity(
-    //     address sender,
-    //     PoolKey calldata key,
-    //     ModifyLiquidityParams calldata params,
-    //     bytes calldata
-    // ) internal override returns (bytes4) {
-    //     require(block.number >= startBlock, "LGE not started");
-    //     require(!isLgeFinished, "LGE finished");
-
-    //     uint256 tokensAvailable = tokensAvailable();
-
-    //     // TODO: tick enforcement and pricing logic
-
-    //     return BaseHook.beforeAddLiquidity.selector;
-    // }
-
-    // function _afterAddLiquidity(
-    //     address sender,
-    //     PoolKey calldata key,
-    //     ModifyLiquidityParams calldata params,
-    //     BalanceDelta delta,
-    //     BalanceDelta feesAccrued,
-    //     bytes calldata hookData
-    // ) internal override returns (bytes4, BalanceDelta) {
-    //     // TODO: track ETH deposits if needed
-
-    //     return (this.afterAddLiquidity.selector, toBalanceDelta(0, 0));
-    // }
+    function _beforeRemoveLiquidity(address, PoolKey calldata, ModifyLiquidityParams calldata, bytes calldata)
+        internal
+        virtual
+        override
+        returns (bytes4)
+    {}
 }

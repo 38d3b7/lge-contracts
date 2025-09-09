@@ -28,13 +28,7 @@ library CurrencySettler {
      * @param amount Amount to send
      * @param burn If true, burn the ERC-6909 token, otherwise transfer ERC-20 to the `PoolManager`
      */
-    function settle(
-        Currency currency,
-        IPoolManager poolManager,
-        address payer,
-        uint256 amount,
-        bool burn
-    ) internal {
+    function settle(Currency currency, IPoolManager poolManager, address payer, uint256 amount, bool burn) internal {
         // Early return when amount is 0 given that some tokens may revert in this case
         if (amount == 0) return;
 
@@ -48,16 +42,9 @@ library CurrencySettler {
         } else {
             poolManager.sync(currency);
             if (payer != address(this)) {
-                IERC20(Currency.unwrap(currency)).safeTransferFrom(
-                    payer,
-                    address(poolManager),
-                    amount
-                );
+                IERC20(Currency.unwrap(currency)).safeTransferFrom(payer, address(poolManager), amount);
             } else {
-                IERC20(Currency.unwrap(currency)).safeTransfer(
-                    address(poolManager),
-                    amount
-                );
+                IERC20(Currency.unwrap(currency)).safeTransfer(address(poolManager), amount);
             }
             poolManager.settle();
         }
@@ -71,18 +58,12 @@ library CurrencySettler {
      * @param amount Amount to receive
      * @param claims If true, mint the ERC-6909 token, otherwise transfer ERC-20 from the `PoolManager` to recipient
      */
-    function take(
-        Currency currency,
-        IPoolManager poolManager,
-        address recipient,
-        uint256 amount,
-        bool claims
-    ) internal {
+    function take(Currency currency, IPoolManager poolManager, address recipient, uint256 amount, bool claims)
+        internal
+    {
         // Early return when amount is 0 given that some tokens may revert in this case
         if (amount == 0) return;
 
-        claims
-            ? poolManager.mint(recipient, currency.toId(), amount)
-            : poolManager.take(currency, recipient, amount);
+        claims ? poolManager.mint(recipient, currency.toId(), amount) : poolManager.take(currency, recipient, amount);
     }
 }

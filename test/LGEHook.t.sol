@@ -8,6 +8,8 @@ import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+// import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
+import {LiquidityAmounts} from "v4-periphery/lib/v4-core/test/utils/LiquidityAmounts.sol";
 
 import {LGEManager} from "../src/LGEManager.sol";
 import {LGEHook} from "../src/hooks/LGEHook.sol";
@@ -30,7 +32,9 @@ contract LGEHookTest is Test, Deployers {
     address hookAddress;
 
     uint256 startingBlock;
-    int24 tickSpacing = 60;
+
+    int24 tickSpacing = 1;
+    uint160 initialSqrtPrice = 79228162514264337593543950336000;
 
     function setUp() public {
         deployFreshManagerAndRouters();
@@ -44,45 +48,49 @@ contract LGEHookTest is Test, Deployers {
             image: "https://example.com/image.png",
             metadata: "https://example.com/metadata.json"
         });
-        LGEManager.PoolConfig memory poolConfig = LGEManager.PoolConfig({
-            initialSqrtPriceX96: 792281625142643375935439503360,
-            fee: 3000,
-            tickSpacing: tickSpacing
-        });
-        LGEManager.DeploymentConfig memory deploymentConfig = LGEManager
-            .DeploymentConfig({
-                tokenConfig: tokenConfig,
-                poolConfig: poolConfig
-            });
+        LGEManager.PoolConfig memory poolConfig =
+            LGEManager.PoolConfig({initialSqrtPriceX96: initialSqrtPrice, fee: 1000, tickSpacing: tickSpacing});
+        LGEManager.DeploymentConfig memory deploymentConfig =
+            LGEManager.DeploymentConfig({tokenConfig: tokenConfig, poolConfig: poolConfig});
 
         vm.prank(tokenCreator);
         vm.roll(10);
-        (tokenAddress, hookAddress, poolId) = lgeManager.deployToken(
-            deploymentConfig
-        );
+        (tokenAddress, hookAddress, poolId) = lgeManager.deployToken(deploymentConfig);
         startingBlock = block.number;
     }
 
     function test_addLiquidity() public {
-        vm.roll(11);
+        vm.roll(13);
         vm.deal(user, 180 ether);
         vm.prank(user);
-        int24 baseTick = TickMath.getTickAtSqrtPrice(
-            792281625142643375935439503360
-        );
-        (, int24 currentTick, , ) = StateLibrary.getSlot0(manager, poolId);
-        (uint256 halfEth, ) = LGECalculationsLibrary.getETHPriceFromRange(
-            LGEHook(hookAddress).tokensAvailable(),
-            baseTick,
-            currentTick,
-            tickSpacing
-        );
-        console.log("Half ETH:", halfEth);
-        console.log(
-            "Tokens Available:",
-            LGEHook(hookAddress).tokensAvailable()
-        );
-        LGEHook(hookAddress).addLiquidity{value: halfEth * 2}();
+        int24 baseTick = TickMath.getTickAtSqrtPrice(initialSqrtPrice);
+        (uint160 sqrtPriceX96, int24 currentTick,,) = StateLibrary.getSlot0(manager, poolId);
+
+        console.log("Current Tick before add liquidity:", currentTick);
+
+        uint256 tokensAvailable = LGEHook(hookAddress).tokensAvailable();
+        uint256 tokenAmount = tokensAvailable / 2;
+        (int24 tickLower, int24 tickUpper,) =
+            LGECalculationsLibrary.ticksForClaim(tokensAvailable, baseTick, currentTick, tickSpacing);
+        // (uint256 ethExpected, uint128 liquidity) = LGECalculationsLibrary
+        //     .getETHPriceFromRange(
+        //         LGEHook(hookAddress).tokensAvailable(),
+        //         tokensAvailable,
+        //         baseTick,
+        //         currentTick,
+        //         tickSpacing
+        //     );
+        // console.log("ETH price per desired tokens amount:", maxETH);
+        console.log("Tokens Available:", LGEHook(hookAddress).tokensAvailable());
+        console.log("Desired Tokens Amount:", tokenAmount);
+
+        (uint256 ethAmount, uint128 liquidity) =
+            LGECalculationsLibrary.getAmountsForLiquidity(sqrtPriceX96, tickLower, tickUpper, currentTick, tokenAmount);
+
+        console.log("ETH Amount calculated:", ethAmount);
+        console.log("Liquidity calculated:", liquidity);
+        LGEHook(hookAddress).addLiquidity{value: ethAmount * 2}(tokenAmount);
+
         console.log("Balance:", address(hookAddress).balance);
 
         console.log("Liquidity:", StateLibrary.getLiquidity(manager, poolId));

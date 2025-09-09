@@ -32,16 +32,10 @@ contract LGEManagerTest is Test, Deployers {
             image: "https://example.com/image.png",
             metadata: "https://example.com/metadata.json"
         });
-        LGEManager.PoolConfig memory poolConfig = LGEManager.PoolConfig({
-            initialSqrtPriceX96: SQRT_PRICE_1_1,
-            fee: 3000,
-            tickSpacing: 1
-        });
-        LGEManager.DeploymentConfig memory deploymentConfig = LGEManager
-            .DeploymentConfig({
-                tokenConfig: tokenConfig,
-                poolConfig: poolConfig
-            });
+        LGEManager.PoolConfig memory poolConfig =
+            LGEManager.PoolConfig({initialSqrtPriceX96: SQRT_PRICE_1_1, fee: 3000, tickSpacing: 1});
+        LGEManager.DeploymentConfig memory deploymentConfig =
+            LGEManager.DeploymentConfig({tokenConfig: tokenConfig, poolConfig: poolConfig});
 
         lgeManager.deployToken(deploymentConfig);
     }
