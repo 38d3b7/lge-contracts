@@ -7,7 +7,6 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {StateView} from "@uniswap/v4-periphery/src/lens/StateView.sol";
-import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {PosmTestSetup} from "./utils/PosmTestSetup.sol";
 import {LGEManager} from "../src/LGEManager.sol";
@@ -47,8 +46,8 @@ contract LGEHookTest is Test, PosmTestSetup {
     function _deployLGEManager() internal {
         lgeManager = new LGEManager(
             manager,
-            IPositionManager(address(lpm)),
-            IAllowanceTransfer(address(permit2)),
+            address(lpm),
+            address(permit2),
             address(this)
         );
     }

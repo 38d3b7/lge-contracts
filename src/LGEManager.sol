@@ -1,14 +1,8 @@
 // SPDX-License-Identifier:
 pragma solidity ^0.8.26;
 
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {PoolId} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {HookMiner} from "v4-periphery/src/utils/HookMiner.sol";
 import {LGEHook} from "./hooks/LGEHook.sol";
@@ -16,8 +10,8 @@ import {LGEToken} from "./LGEToken.sol";
 
 contract LGEManager {
     IPoolManager private immutable _poolManager;
-    IPositionManager private immutable _positionManager;
-    IAllowanceTransfer private immutable _permit2;
+    address private immutable _positionManager;
+    address private immutable _permit2;
     address private immutable _create2Deployer;
     uint160 private immutable FLAGS =
         uint160(
@@ -45,15 +39,15 @@ contract LGEManager {
     }
 
     event TokenCreated(
-        address msgSender,
+        address indexed msgSender,
         address indexed tokenAddress,
         address indexed hookAddress
     );
 
     constructor(
         IPoolManager poolManager_,
-        IPositionManager positionManager_,
-        IAllowanceTransfer permit2_,
+        address positionManager_,
+        address permit2_,
         address create2Deployer_
     ) {
         _poolManager = poolManager_;

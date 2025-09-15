@@ -9,14 +9,12 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-import {BalanceDelta, toBalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {StateLibrary} from "@uniswap/v4-periphery/lib/v4-core/src/libraries/StateLibrary.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {LiquidityAmounts} from "@uniswap/v4-periphery/lib/v4-core/test/utils/LiquidityAmounts.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
-import {ERC20Capped} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {IPoolInitializer_v4} from "@uniswap/v4-periphery/src/interfaces/IPoolInitializer_v4.sol";
@@ -39,19 +37,41 @@ contract LGEHook is BaseHook {
     error WrongPool();
     error InvalidPrice();
     error InvalidAmount();
+    error AlreadyClaimed();
 
+    event Deposited(
+        address indexed user,
+        uint256 amountOfTokens,
+        uint256 amountOfETH,
+        uint256 ethContractBalance
+    );
+    event LGESuccessful(
+        PoolKey poolKey,
+        uint256 ethContractBalance,
+        uint256 initialSqrtPriceX96,
+        uint256 totalEthToLiquidity,
+        uint128 liquidity
+    );
     event LGEFailed();
+    event Withdrawn(
+        address indexed user,
+        uint256 amountOfEth,
+        uint256 ethContractBalance
+    );
 
     struct UserState {
         uint256 ethToLiquidityDeposited;
         uint256 remainingEthDeposited;
         uint256 tokensToLiquidity;
+        bool hasClaimed;
     }
 
     uint256 public constant STREAM_BLOCKS = 5000;
     uint256 public constant TOTAL_BLOCKS = 6000;
     int24 public constant TICK_SPACING = 1;
     uint24 public constant FEE = 10000;
+    int24 public constant MIN_TICK = TickMath.MIN_TICK;
+    int24 public constant MAX_TICK = TickMath.MAX_TICK;
 
     IPositionManager public immutable positionManager;
     IAllowanceTransfer public immutable permit2;
@@ -62,7 +82,6 @@ contract LGEHook is BaseHook {
     uint256 public immutable maxTokenPrice;
 
     PoolKey public poolKey;
-
     mapping(address => UserState) public userStates;
 
     uint256 public totalEthToLiquidity;
@@ -78,16 +97,16 @@ contract LGEHook is BaseHook {
 
     constructor(
         IPoolManager poolManager_,
-        IPositionManager positionManager_,
-        IAllowanceTransfer permit2_,
+        address positionManager_,
+        address permit2_,
         address token_,
         uint256 startBlock_,
         uint256 minTokenPrice_,
         uint256 maxTokenPrice_
     ) BaseHook(poolManager_) {
         token = LGEToken(token_);
-        positionManager = positionManager_;
-        permit2 = permit2_;
+        positionManager = IPositionManager(positionManager_);
+        permit2 = IAllowanceTransfer(permit2_);
         startBlock = startBlock_;
         minTokenPrice = minTokenPrice_;
         maxTokenPrice = maxTokenPrice_;
@@ -143,6 +162,13 @@ contract LGEHook is BaseHook {
         userStates[msg.sender].ethToLiquidityDeposited += ethPortion;
         userStates[msg.sender].remainingEthDeposited += ethPortion;
         userStates[msg.sender].tokensToLiquidity += amountOfTokens;
+
+        emit Deposited(
+            msg.sender,
+            amountOfTokens,
+            ethPortion,
+            address(this).balance
+        );
 
         if (block.number == (startBlock + STREAM_BLOCKS)) {
             isLgeFinished = true;
@@ -218,6 +244,14 @@ contract LGEHook is BaseHook {
                 positionManager.multicall{value: totalEthToLiquidity}(params);
 
                 totalLiquidity = liquidity;
+
+                emit LGESuccessful(
+                    poolKey,
+                    address(this).balance,
+                    initialSqrtPriceX96,
+                    totalEthToLiquidity,
+                    liquidity
+                );
             } else {
                 emit LGEFailed();
             }
@@ -235,7 +269,12 @@ contract LGEHook is BaseHook {
         uint256 ethToWithdraw = userStates[msg.sender].ethToLiquidityDeposited +
             userStates[msg.sender].remainingEthDeposited;
 
+        userStates[msg.sender].ethToLiquidityDeposited = 0;
+        userStates[msg.sender].remainingEthDeposited = 0;
+
         payable(msg.sender).transfer(ethToWithdraw);
+
+        emit Withdrawn(msg.sender, ethToWithdraw, address(this).balance);
     }
 
     function claimLiquidity() external returns (uint256 userPositionId) {
@@ -245,8 +284,15 @@ contract LGEHook is BaseHook {
             revert CannotClaimLiquidity();
         }
 
+        if (userStates[msg.sender].hasClaimed) revert AlreadyClaimed();
+
         uint256 liquidityToClaim = (userStates[msg.sender]
             .ethToLiquidityDeposited * totalLiquidity) / totalEthToLiquidity;
+
+        userStates[msg.sender].hasClaimed = true;
+        userStates[msg.sender].ethToLiquidityDeposited = 0;
+        userStates[msg.sender].remainingEthDeposited = 0;
+        userStates[msg.sender].tokensToLiquidity = 0;
 
         uint256 ethBefore = address(this).balance;
         uint256 tokenBefore = token.balanceOf(address(this));

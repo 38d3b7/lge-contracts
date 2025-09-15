@@ -5,7 +5,6 @@ import {Test, console2} from "forge-std/Test.sol";
 import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
 import {PoolManager} from "@uniswap/v4-core/src/PoolManager.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
-import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
@@ -24,8 +23,8 @@ contract LGEManagerTest is Test, Deployers {
 
         lgeManager = new LGEManager(
             manager,
-            IPositionManager(address(this)),
-            IAllowanceTransfer(address(this)),
+            address(this),
+            address(this),
             address(this)
         );
     }
