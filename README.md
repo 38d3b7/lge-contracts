@@ -48,10 +48,6 @@ If successful:
 
 If failed:
 -   Users can withdraw their deposited ETH
-#### Phase 3: Post-LGE (After Block 5,000)
--   **Blocks 5,000-6,000**: Trading restricted (no swaps allowed)
--   **After Block 6,000**: Full trading enabled
--   Users can claim their proportional LP positions anytime after block 5,000
 ## Contract Deployments
 **Base Sepolia Testnet**
 | Contract Name | Contract Address |

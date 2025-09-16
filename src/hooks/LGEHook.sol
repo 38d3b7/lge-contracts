@@ -170,7 +170,10 @@ contract LGEHook is BaseHook {
             address(this).balance
         );
 
-        if (block.number == (startBlock + STREAM_BLOCKS)) {
+        if (
+            block.number >= (startBlock + STREAM_BLOCKS) ||
+            totalTokensClaimed == cap
+        ) {
             isLgeFinished = true;
             if (totalTokensClaimed == cap) {
                 isLgeSuccessful = true;
