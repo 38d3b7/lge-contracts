@@ -24,8 +24,11 @@ contract LGEHookTest is Test, PosmTestSetup {
     address owner = address(0xABCD);
     address tokenAdmin = address(0x1234);
     address tokenCreator = address(0x5678);
+
     address user = address(0x9ABC);
     address user2 = address(0xDEF0);
+    address user3 = address(0x1111);
+    address user4 = address(0x2222);
 
     address tokenAddress;
     address hookAddress;
@@ -34,6 +37,8 @@ contract LGEHookTest is Test, PosmTestSetup {
 
     uint256 minTokenPrice = 100_000_000;
     uint256 maxTokenPrice = 10_000_000;
+
+    uint256 constant TOKEN_CAP = 17745440000e18;
 
     function setUp() public {
         deployFreshManagerAndRouters();
@@ -75,70 +80,280 @@ contract LGEHookTest is Test, PosmTestSetup {
         return lgeManager.deployToken(config);
     }
 
-    function test_addLiquidity() public {
-        for (uint256 i = startBlock + 1; i <= startBlock + 4999; ) {
-            vm.roll(i);
-            uint256 tokenAmount = 3_549_088e18;
-            uint256 ethPrice = LGECalculationsLibrary
-                .calculateCurrentTokenPrice(
-                    minTokenPrice,
-                    maxTokenPrice,
-                    block.number,
-                    startBlock
-                );
-            hoax(user);
-            LGEHook(payable(hookAddress)).deposit{
-                value: (tokenAmount / ethPrice) * 2
-            }(tokenAmount);
-
-            unchecked {
-                i += 1;
-            }
-        }
-
-        console.log("Balance BEFORE:", address(hookAddress).balance);
-        vm.roll(startBlock + 5000);
-        uint256 tokenAmount1 = 3_549_088e18;
-        uint256 ethPrice1 = LGECalculationsLibrary.calculateCurrentTokenPrice(
+    function calculateETHNeeded(
+        uint256 tokenAmount
+    ) internal view returns (uint256) {
+        uint256 ethPerToken = LGECalculationsLibrary.calculateCurrentTokenPrice(
             minTokenPrice,
             maxTokenPrice,
             block.number,
             startBlock
         );
+        return (tokenAmount / ethPerToken) * 2;
+    }
 
-        // console.log("ETH Amount calculated:", ethAmount);
+    function test_depositSuccess() public {
+        uint256 tokenAmount = 3_549_088e18;
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+        hoax(user);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
+
+        LGEHook.UserState memory userState = _getUserState(user);
+
+        assertEq(address(LGEHook(payable(hookAddress))).balance, ethNeeded);
+        assertEq(userState.ethToLiquidityDeposited, ethNeeded / 2);
+        assertEq(userState.remainingEthDeposited, ethNeeded / 2);
+        assertEq(userState.tokensToLiquidity, tokenAmount);
+        assertFalse(userState.hasClaimed);
+    }
+
+    function test_depositInvalidPriceRevert() public {
+        uint256 tokenAmount = 3_549_088e18;
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+        hoax(user);
+        vm.expectRevert(LGEHook.InvalidPrice.selector);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded + 1}(
+            tokenAmount
+        );
+    }
+
+    function test_depostAfterLGEFinishedRevert() public {
+        _reachCapSuccessfully();
+
+        vm.roll(startBlock + 5001);
+        uint256 tokenAmount = 100e18;
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+
+        hoax(user);
+        vm.expectRevert(LGEHook.LGEFinished.selector);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
+    }
+
+    function test_depositMultipleUsers() public {
+        vm.roll(startBlock + 100);
+
+        uint256 tokenAmount1 = 1000e18;
+        uint256 ethNeeded1 = calculateETHNeeded(tokenAmount1);
+        hoax(user);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded1}(tokenAmount1);
+
+        vm.roll(startBlock + 200);
+        uint256 tokenAmount2 = 2000e18;
+        uint256 ethNeeded2 = calculateETHNeeded(tokenAmount2);
         hoax(user2);
-        LGEHook(payable(hookAddress)).deposit{
-            value: (tokenAmount1 / ethPrice1) * 2
-        }(tokenAmount1);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded2}(tokenAmount2);
 
-        console.log(
-            "tokenId:",
-            LGEHook(payable(hookAddress)).positionTokenId()
-        );
-        console.log("Balance:", address(hookAddress).balance);
-        console.log(
-            "TOKEN Balance:",
-            LGEToken(tokenAddress).balanceOf(hookAddress)
-        );
-        console.log(
-            "Liquidity:",
-            StateLibrary.getLiquidity(
-                manager,
-                LGEHook(payable(hookAddress)).getPoolId()
-            )
-        );
+        LGEHook.UserState memory user1State = _getUserState(user);
+        assertEq(user1State.tokensToLiquidity, tokenAmount1);
 
-        console.log(
-            "Position Liquidity:",
-            lpm.getPositionLiquidity(
-                LGEHook(payable(hookAddress)).positionTokenId()
-            )
+        LGEHook.UserState memory user2State = _getUserState(user2);
+        assertEq(user2State.tokensToLiquidity, tokenAmount2);
+
+        assertEq(
+            LGEHook(payable(hookAddress)).totalTokensClaimed(),
+            tokenAmount1 + tokenAmount2
         );
+        assertEq(LGEHook(payable(hookAddress)).totalDeposits(), 2);
+    }
+
+    function test_depositPriceChangesOverTime() public {
+        uint256 tokenAmount = 1000e18;
+
+        vm.roll(startBlock + 100);
+        uint256 earlyPrice = calculateETHNeeded(tokenAmount);
+
+        vm.roll(startBlock + 4000);
+        uint256 latePrice = calculateETHNeeded(tokenAmount);
+
+        assertTrue(latePrice < earlyPrice);
+    }
+
+    function test_LGESuccess() public {
+        _reachCapSuccessfully();
+
+        assertTrue(LGEHook(payable(hookAddress)).isLgeSuccessful());
+        assertTrue(LGEHook(payable(hookAddress)).isLgeFinished());
+
+        uint256 liquidity = LGEHook(payable(hookAddress)).totalLiquidity();
+        assertTrue(liquidity > 0);
+
+        uint256 positionId = LGEHook(payable(hookAddress)).positionTokenId();
+        assertTrue(positionId > 0);
+    }
+
+    function test_LGEFailedPartialCapReached() public {
+        vm.roll(startBlock + 100);
+        uint256 tokenAmount = 1000e18; // Much less than cap
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+
+        hoax(user);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
+
+        vm.roll(startBlock + 5000);
+        uint256 ethNeeded1 = calculateETHNeeded(tokenAmount);
+        hoax(user2);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded1}(tokenAmount);
+
+        assertFalse(LGEHook(payable(hookAddress)).isLgeSuccessful());
+        assertTrue(LGEHook(payable(hookAddress)).isLgeFinished());
+    }
+
+    function test_withdrawAfterLGEFailed() public {
+        vm.roll(startBlock + 100);
+        uint256 tokenAmount = 1000e18;
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+
+        hoax(user);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
+
+        vm.roll(startBlock + 5000);
+        uint256 ethNeeded1 = calculateETHNeeded(tokenAmount);
+        hoax(user2);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded1}(tokenAmount);
+
+        uint256 balanceBefore = user.balance;
+
+        vm.prank(user);
+        LGEHook(payable(hookAddress)).withdraw();
+
+        assertEq(user.balance - balanceBefore, ethNeeded);
+
+        LGEHook.UserState memory userState = _getUserState(user);
+        assertEq(userState.ethToLiquidityDeposited, 0);
+        assertEq(userState.remainingEthDeposited, 0);
+    }
+
+    function test_withdrawTooEarlyRevert() public {
+        vm.roll(startBlock + 100);
+        uint256 tokenAmount = 1000e18;
+        uint256 ethNeeded = calculateETHNeeded(tokenAmount);
+
+        hoax(user);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
+
+        vm.roll(startBlock + 4999);
+        vm.prank(user);
+        vm.expectRevert(LGEHook.WithdrawTooEarly.selector);
+        LGEHook(payable(hookAddress)).withdraw();
+    }
+
+    function test_withdrawAfterSuccessfullLGERevert() public {
+        _reachCapSuccessfully();
+
+        vm.prank(user);
+        vm.expectRevert(LGEHook.CannotWithdrawETH.selector);
+        LGEHook(payable(hookAddress)).withdraw();
+    }
+
+    function test_withdrawNoDepositRevert() public {
+        vm.roll(startBlock + 5001);
+
+        vm.prank(user3);
+        vm.expectRevert(LGEHook.NoETHDeposited.selector);
+        LGEHook(payable(hookAddress)).withdraw();
+    }
+
+    function test_claimLiquiditySuccess() public {
+        _reachCapSuccessfully();
+
+        // User1 claims liquidity
+        vm.prank(user);
+        uint256 userPositionId = LGEHook(payable(hookAddress)).claimLiquidity();
+
+        // Verify NFT was minted
+        assertTrue(userPositionId > 0);
+
+        // Verify user marked as claimed
+        LGEHook.UserState memory userState = _getUserState(user);
+        assertTrue(userState.hasClaimed);
+        assertEq(userState.ethToLiquidityDeposited, 0);
+    }
+
+    function test_claimLiquidityMultipleClaims() public {
+        _reachCapSuccessfully();
+
+        vm.prank(user);
+        uint256 position1 = LGEHook(payable(hookAddress)).claimLiquidity();
 
         vm.prank(user2);
-        uint256 userTokenId = LGEHook(payable(hookAddress)).claimLiquidity();
+        uint256 position2 = LGEHook(payable(hookAddress)).claimLiquidity();
 
-        console.log("User NFT balance:", userTokenId);
+        assertTrue(position1 != position2);
+    }
+
+    function test_claimLiquidityDoubleClaimRevert() public {
+        _reachCapSuccessfully();
+
+        vm.prank(user);
+        LGEHook(payable(hookAddress)).claimLiquidity();
+
+        vm.prank(user);
+        vm.expectRevert(LGEHook.AlreadyClaimed.selector);
+        LGEHook(payable(hookAddress)).claimLiquidity();
+    }
+
+    function test_claimLiquidityBeforeEndBlockRevert() public {
+        vm.roll(startBlock + 4000);
+        _depositToReachCap();
+
+        vm.prank(user);
+        vm.expectRevert(LGEHook.CannotClaimLiquidity.selector);
+        LGEHook(payable(hookAddress)).claimLiquidity();
+    }
+
+    function _getUserState(
+        address userState
+    ) internal view returns (LGEHook.UserState memory) {
+        (
+            uint256 ethToLiquidityDeposited,
+            uint256 remainingEthDeposited,
+            uint256 tokensToLiquidity,
+            bool hasClaimed
+        ) = LGEHook(payable(hookAddress)).userStates(userState);
+
+        return
+            LGEHook.UserState({
+                ethToLiquidityDeposited: ethToLiquidityDeposited,
+                remainingEthDeposited: remainingEthDeposited,
+                tokensToLiquidity: tokensToLiquidity,
+                hasClaimed: hasClaimed
+            });
+    }
+
+    function _reachCapSuccessfully() internal {
+        uint256 tokensPerUser = TOKEN_CAP / 4;
+
+        vm.roll(startBlock + 1000);
+        uint256 eth1 = calculateETHNeeded(tokensPerUser);
+        vm.deal(user, eth1);
+        vm.prank(user);
+        LGEHook(payable(hookAddress)).deposit{value: eth1}(tokensPerUser);
+
+        vm.roll(startBlock + 2000);
+        uint256 eth2 = calculateETHNeeded(tokensPerUser);
+        vm.deal(user2, eth2);
+        vm.prank(user2);
+        LGEHook(payable(hookAddress)).deposit{value: eth2}(tokensPerUser);
+
+        vm.roll(startBlock + 3000);
+        uint256 eth3 = calculateETHNeeded(tokensPerUser);
+        vm.deal(user3, eth3);
+        vm.prank(user3);
+        LGEHook(payable(hookAddress)).deposit{value: eth3}(tokensPerUser);
+
+        vm.roll(startBlock + 5000);
+        uint256 eth4 = calculateETHNeeded(tokensPerUser);
+        vm.deal(user4, eth4);
+        vm.prank(user4);
+        LGEHook(payable(hookAddress)).deposit{value: eth4}(tokensPerUser);
+    }
+
+    function _depositToReachCap() internal {
+        uint256 remaining = TOKEN_CAP -
+            LGEHook(payable(hookAddress)).totalTokensClaimed();
+        uint256 ethNeeded = calculateETHNeeded(remaining);
+
+        hoax(user4);
+        LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(remaining);
     }
 }
