@@ -1,6 +1,7 @@
 
 # LGE Contracts
 This repository contains smart contracts for the LGE (Liquidity Generation Event) mechanism for new tokens on Uniswap v4. It enables projects to bootstrap liquidity through a time-based token sale where the price gradually decreases over time, ensuring fair distribution and liquidity provision.
+**We have not used EigenLayer or Fhenix in this hook.**
 
 ## Architecture
 ### Core Components
@@ -47,7 +48,7 @@ If successful:
     -   Full range liquidity (MIN_TICK to MAX_TICK)
 
 If failed:
--   Users can withdraw their deposited ETH
+-   Users can withdraw their deposited ETHo
 ## Contract Deployments
 **Base Sepolia Testnet**
 | Contract Name | Contract Address |
