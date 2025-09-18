@@ -81,7 +81,6 @@ contract LGEManager {
         );
 
         (, bytes32 salt) = HookMiner.find(
-            // TODO: should we remove this and set as a _create2Deployer on the mainnet?
             address(this),
             FLAGS,
             type(LGEHook).creationCode,
