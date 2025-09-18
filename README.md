@@ -4,6 +4,7 @@ This repository contains smart contracts for the LGE (Liquidity Generation Event
 **We have not used EigenLayer or Fhenix in this hook.**
 
 ## Architecture
+![architecture](LGE_architecture.png)
 ### Core Components
 1. **LGEManager.sol** - Factory Contract.
 The main entry point for deploying new LGE campaigns.
@@ -59,3 +60,5 @@ The current open issue is the precision loss that happens during minting a posit
 |--|--|
 | LGEManager | 0x80b151Bd4Ed017692F395E2F0395f0c84071A56B |
 | LGECalculationsLibrary | 0x74C6B2321BeD36FB92E9c88fc33D2A77ED7bBe57 |
+## Test Coverage
+Current test coverage is ~80%. The main tests are located in the `test` directory, `LGEHook.t.sol`. The tests cover various scenarios, including successful and failed LGEs.
