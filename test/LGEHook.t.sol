@@ -7,6 +7,7 @@ import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {StateView} from "@uniswap/v4-periphery/src/lens/StateView.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 
 import {PosmTestSetup} from "./utils/PosmTestSetup.sol";
 import {LGEManager} from "../src/LGEManager.sol";
@@ -17,8 +18,6 @@ import {LGECalculationsLibrary} from "../src/libraries/LGECalculationsLibrary.so
 import {console} from "forge-std/console.sol";
 
 contract LGEHookTest is Test, PosmTestSetup {
-    StateView stateView;
-
     LGEManager lgeManager;
 
     address owner = address(0xABCD);
@@ -35,8 +34,8 @@ contract LGEHookTest is Test, PosmTestSetup {
 
     uint256 startBlock;
 
-    uint256 minTokenPrice = 100_000_000;
-    uint256 maxTokenPrice = 10_000_000;
+    uint256 minTokenPrice = 20_000_000_000;
+    uint256 maxTokenPrice = 15_000_000_000;
 
     uint256 constant TOKEN_CAP = 17745440000e18;
 
@@ -59,7 +58,7 @@ contract LGEHookTest is Test, PosmTestSetup {
 
     function _deployTokenAndHook() internal {
         vm.prank(tokenCreator);
-        vm.roll(10);
+        vm.roll(31160653);
 
         (tokenAddress, hookAddress) = _deployWithConfig();
         startBlock = block.number;
@@ -256,14 +255,20 @@ contract LGEHookTest is Test, PosmTestSetup {
     function test_claimLiquiditySuccess() public {
         _reachCapSuccessfully();
 
-        // User1 claims liquidity
         vm.prank(user);
         uint256 userPositionId = LGEHook(payable(hookAddress)).claimLiquidity();
 
-        // Verify NFT was minted
         assertTrue(userPositionId > 0);
 
-        // Verify user marked as claimed
+        uint128 userPositionLiquidity = lpm.getPositionLiquidity(
+            userPositionId
+        );
+
+        assertTrue(userPositionLiquidity > 0);
+
+        console.log("Position ID:", userPositionId);
+        console.log("User Position Liquidity: ", userPositionLiquidity);
+
         LGEHook.UserState memory userState = _getUserState(user);
         assertTrue(userState.hasClaimed);
         assertEq(userState.ethToLiquidityDeposited, 0);
