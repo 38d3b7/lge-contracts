@@ -1,8 +1,8 @@
 
-# LGE Contracts
-This repository contains smart contracts for the LGE (Liquidity Generation Event) mechanism for new tokens on Uniswap v4. It enables projects to bootstrap liquidity through a time-based token sale where the price gradually decreases over time, ensuring fair distribution and liquidity provision.
+# LGE Hookathon Entry HK-UHI6-0442 - UHI6
+This repository contains smart contracts for the LGE (Liquidity Generation Event) - a novel liquidity-first mechanism for launching new tokens on Uniswap v4. Creators bootstrap liquidity with a dutch auction. Only if 100% liquidity is achieved is the LGE a success, otherwise participants claim their ETH back loosing nothing.
 **We have not used EigenLayer or Fhenix in this hook.**
-
+![LGE flow](flow.png)
 ## Architecture
 ![architecture](LGE_architecture.png)
 ### Core Components
@@ -22,7 +22,7 @@ A capped ERC20 token with administrative functions.
 3. **LGEHook.sol** - Uniswap v4 Hook.
 The core LGE mechanism that handles deposits, liquidity provision, and pool creation.
 *Key Features:*
-	- LGE duration: stream period: 5,000 blocks, total restricted period: 6,000 blocks (swaps forbidden for first 1,000 blocks after LGE);
+	- LGE duration: 5,000 blocks;
 	- deposit() function: users deposit ETH to purchase tokens at the calculated price;
 	- withdraw() function: retrieve ETH if LGE fails;
 	- claimLiquidity() function: claim LP position after successful LGE;
@@ -36,15 +36,15 @@ Helper library for price and liquidity calculations.
 1.  **Dynamic Pricing**: Token price decreases linearly from `maxTokenPrice` to `minTokenPrice` over the stream period
 2.  **Deposit Structure**: Users deposit ETH where:
     -   50% goes toward liquidity provision
-    -   50% remains for the future purposes
-3.  **Fair Distribution**: Price decline ensures early buyers don't have unfair advantage
+    -   50% remains for rewards and tokenomics
+3.  **Fair Distribution**: Dutch auction prevents sniping, ensures early buyers don't have unfair advantage and allows price discover.
 #### Phase 2: LGE Conclusion (Block 5,000)
 **Success Criteria**: All tokens (cap amount) must be sold.
 
 If successful:
 -   Uniswap v4 pool is automatically created
 -   Initial liquidity is added (50% of ETH + all tokens)
--   Pool parameters:
+-   Pool parameters (may change for MVP based on feedback and more testing):
     -   Fee: 1% (10,000 basis points)
     -   Tick spacing: 1
     -   Full range liquidity (MIN_TICK to MAX_TICK)
@@ -54,11 +54,14 @@ If failed:
 
 ## Open Issues
 The current open issue is the precision loss that happens during minting a position. It uses exact half of the ETH needed to mint a liquidity, however it also uses smaller amount of tokens. Ideally, what we want to achieve is using exact amount of ETH + exact amount of tokens to create a liquidity position. We're currently investigating the best way to achieve this with minimal precision loss.
+## Test Coverage
+Current test coverage is ~80%. The main tests are located in the `test` directory, `LGEHook.t.sol`. The tests cover various scenarios, including successful and failed LGEs.
 ## Contract Deployments
 **Ethereum Sepolia Testnet (not verified)**
 | Contract Name | Contract Address |
 |--|--|
 | LGEManager | 0x80b151Bd4Ed017692F395E2F0395f0c84071A56B |
 | LGECalculationsLibrary | 0x74C6B2321BeD36FB92E9c88fc33D2A77ED7bBe57 |
-## Test Coverage
-Current test coverage is ~80%. The main tests are located in the `test` directory, `LGEHook.t.sol`. The tests cover various scenarios, including successful and failed LGEs.
+## License
+MIT
+
