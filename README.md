@@ -1,6 +1,7 @@
 
 # LGE Hookathon Entry HK-UHI6-0442 - UHI6
 **No partner integrations**
+
 This repository contains smart contracts for the LGE (Liquidity Generation Event) - a novel liquidity-first mechanism for launching new tokens on Uniswap v4. Creators bootstrap liquidity with a dutch auction. Only if 100% liquidity is achieved is the LGE a success, otherwise participants claim their ETH back loosing nothing.
 ## LGE Flow
 ![LGE-flow](LGE-flow.png)
