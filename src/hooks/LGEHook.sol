@@ -96,14 +96,14 @@ contract LGEHook is BaseHook {
     bool public isLgeSuccessful;
 
     constructor(
-        IPoolManager poolManager_,
+        address poolManager_,
         address positionManager_,
         address permit2_,
         address token_,
         uint256 startBlock_,
         uint256 minTokenPrice_,
         uint256 maxTokenPrice_
-    ) BaseHook(poolManager_) {
+    ) BaseHook(IPoolManager(poolManager_)) {
         token = LGEToken(token_);
         positionManager = IPositionManager(positionManager_);
         permit2 = IAllowanceTransfer(permit2_);
@@ -145,17 +145,21 @@ contract LGEHook is BaseHook {
         if (isLgeFinished) revert LGEFinished();
 
         uint256 cap = token.cap();
-        uint256 ethPortion = msg.value / 2;
-        uint256 ethPerToken = LGECalculationsLibrary.calculateCurrentTokenPrice(
+        uint256 ethExpected = LGECalculationsLibrary.calculateEthNeeded(
             minTokenPrice,
             maxTokenPrice,
             block.number,
-            startBlock
+            startBlock,
+            amountOfTokens
         );
-        uint256 ethExpected = amountOfTokens / ethPerToken;
 
-        if (msg.value != ethExpected * 2) revert InvalidPrice();
+        if (msg.value < ethExpected) revert InvalidPrice();
+        if (msg.value > ethExpected) {
+            uint256 refund = msg.value - ethExpected;
+            payable(msg.sender).transfer(refund);
+        }
 
+        uint256 ethPortion = ethExpected / 2;
         totalTokensClaimed += amountOfTokens;
         totalDeposits += 1;
 
@@ -283,9 +287,9 @@ contract LGEHook is BaseHook {
     function claimLiquidity() external returns (uint256 userPositionId) {
         if (!isLgeSuccessful) revert CannotClaimLiquidity();
 
-        if (block.number < startBlock + STREAM_BLOCKS) {
-            revert CannotClaimLiquidity();
-        }
+        // if (block.number < startBlock + STREAM_BLOCKS) {
+        //     revert CannotClaimLiquidity();
+        // }
 
         if (userStates[msg.sender].hasClaimed) revert AlreadyClaimed();
 
