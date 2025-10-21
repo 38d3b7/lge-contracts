@@ -14,6 +14,10 @@ library LGECalculationsLibrary {
         uint256 currentBlock,
         uint256 startBlock
     ) public pure returns (uint256) {
+        if (currentBlock >= startBlock + TOTAL_BLOCKS) {
+            return maxTokenPrice;
+        }
+
         return
             maxTokenPrice +
             (((minTokenPrice - maxTokenPrice) * (currentBlock - startBlock)) /

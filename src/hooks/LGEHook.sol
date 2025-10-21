@@ -287,10 +287,6 @@ contract LGEHook is BaseHook {
     function claimLiquidity() external returns (uint256 userPositionId) {
         if (!isLgeSuccessful) revert CannotClaimLiquidity();
 
-        // if (block.number < startBlock + STREAM_BLOCKS) {
-        //     revert CannotClaimLiquidity();
-        // }
-
         if (userStates[msg.sender].hasClaimed) revert AlreadyClaimed();
 
         uint256 liquidityToClaim = (userStates[msg.sender]
@@ -306,36 +302,32 @@ contract LGEHook is BaseHook {
 
         _approveTokensForLiquidity();
 
-        bytes[] memory params = new bytes[](1);
-
-        bytes memory actions = abi.encodePacked(
+        bytes memory decreaseActions = abi.encodePacked(
             uint8(Actions.DECREASE_LIQUIDITY),
             uint8(Actions.TAKE_PAIR)
         );
 
-        bytes[] memory actionParams = new bytes[](2);
+        bytes[] memory params = new bytes[](2);
 
-        actionParams[0] = abi.encode(
+        params[0] = abi.encode(
             positionTokenId,
             liquidityToClaim,
             0,
             0,
-            bytes32(0)
+            new bytes(0)
         );
 
-        actionParams[1] = abi.encode(
-            poolKey.currency0,
-            poolKey.currency1,
-            address(this)
-        );
+        Currency currency0 = Currency.wrap(address(0));
+        Currency currency1 = Currency.wrap(address(token));
 
-        params[0] = abi.encodeWithSelector(
-            positionManager.modifyLiquidities.selector,
-            abi.encode(actions, actionParams),
-            block.timestamp + 60
-        );
+        params[1] = abi.encode(currency0, currency1, address(this));
 
-        positionManager.multicall(params);
+        uint256 deadline = block.timestamp;
+
+        positionManager.modifyLiquidities(
+            abi.encode(decreaseActions, params),
+            deadline
+        );
 
         uint256 ethAmount = address(this).balance - ethBefore;
         uint256 tokenAmount = token.balanceOf(address(this)) - tokenBefore;
@@ -350,13 +342,14 @@ contract LGEHook is BaseHook {
 
         userPositionId = positionManager.nextTokenId();
 
-        bytes[] memory userParams = new bytes[](1);
-        bytes[] memory mintParams = new bytes[](2);
-
-        bytes memory userActions = abi.encodePacked(
+        bytes memory mintActions = abi.encodePacked(
             uint8(Actions.MINT_POSITION),
-            uint8(Actions.SETTLE_PAIR)
+            uint8(Actions.SETTLE_PAIR),
+            uint8(Actions.SWEEP)
         );
+
+        bytes[] memory mintParams = new bytes[](3);
+
         mintParams[0] = abi.encode(
             poolKey,
             TickMath.MIN_TICK,
@@ -367,16 +360,15 @@ contract LGEHook is BaseHook {
             msg.sender,
             new bytes(0)
         );
-        mintParams[1] = abi.encode(poolKey.currency0, poolKey.currency1);
 
-        userParams[0] = abi.encodeWithSelector(
-            positionManager.modifyLiquidities.selector,
-            abi.encode(userActions, mintParams),
-            block.timestamp + 60
+        mintParams[1] = abi.encode(currency0, currency1);
+
+        mintParams[2] = abi.encode(currency0, address(this));
+
+        positionManager.modifyLiquidities{value: ethAmount}(
+            abi.encode(mintActions, mintParams),
+            deadline + 60
         );
-
-        _approveTokensForLiquidity();
-        positionManager.multicall{value: ethAmount}(userParams);
     }
 
     function _approveTokensForLiquidity() internal {
