@@ -1,14 +1,14 @@
 # LGE Project Context for Development
 
 ## Quick Reference
-This is a Liquidity Generation Event (LGE) system using Uniswap v4 hooks to create fair token launches through Dutch auctions. If the LGE fails, users get 100% refund. If it succeeds, automatic liquidity pool creation.
+This is a Token Generation Event (TGE) system using a Uniswap v4 hook. It is a liquidity-first idea (Uniswap LP) and therefore called LGE (Liquidity Generation Event). If the LGE fails, users get 100% refund. If it succeeds, a liquidity pool is created automatically and participants can claim their LP tokens.
 
 ## Core Business Logic
 
 ### The Dutch Auction Flow
 1. Price starts HIGH (maxTokenPrice) 
 2. Decreases linearly to LOW (minTokenPrice) over 5,000 blocks
-3. Users deposit ETH at any point during auction
+3. Users deposit ETH at any point during auction which is mapped to their wallet and later defines their LP allocation. The system means there is no incentive for gas wars or bot sniping.
 4. Their token amount = ETH / current_price_at_block
 
 ### Capital Split (Critical)
@@ -19,41 +19,6 @@ When users deposit ETH:
 ### Success/Failure Logic
 - **SUCCESS**: All 17,745,440,000 tokens sold → Create pool → Users get LP tokens
 - **FAILURE**: Not all tokens sold → Users withdraw ETH (100% refund)
-
-## Architecture Decisions
-
-### Why Uniswap v4 Hooks?
-- Allows custom logic during pool lifecycle
-- Single transaction for LGE → Pool creation
-- Gas efficient through singleton architecture
-- Native ETH support (no WETH wrapping)
-
-### Why Dutch Auction?
-- Prevents bot sniping (no advantage to being first)
-- Natural price discovery
-- Fair for all participants
-- No gas wars
-
-### Why 100% Token in LGE?
-- Ensures maximum liquidity depth
-- No team tokens to dump
-- Aligned incentives
-- Trust through transparency
-
-## Current Technical Challenges
-
-### Precision Loss Issue (ACTIVE PROBLEM)
-When creating the liquidity position, we have a mismatch:
-- We use exactly 50% of ETH ✓
-- But slightly less tokens than optimal ✗
-- Results in ~0.1-0.5% inefficiency
-
-**Why it matters**: Leftover tokens = less liquidity than intended
-
-**Investigating**: 
-- Tick math rounding strategies
-- Using sqrtPriceX96 adjustments
-- Slippage tolerance implementation
 
 ## Critical Integration Points
 
@@ -87,15 +52,6 @@ DEPLOYED → ACTIVE (5000 blocks) → SUCCESS → LIQUIDITY_ADDED
 3. **Refunds always available** if failed
 4. **No price manipulation** possible during auction
 5. **MEV resistant** through auction design
-
-## Testing Focus Areas
-
-When testing changes, prioritize:
-1. Edge cases at block boundaries (0, 5000)
-2. Precision in token/ETH calculations
-3. Reentrancy in deposit/withdraw
-4. Pool initialization parameters
-5. LP token distribution accuracy
 
 ## Key Invariants (NEVER BREAK THESE)
 
