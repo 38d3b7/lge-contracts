@@ -48,10 +48,9 @@ DEPLOYED → ACTIVE (5000 blocks) → SUCCESS → LIQUIDITY_ADDED
 ## Security Assumptions
 
 1. **No admin mint** after LGE (hard guarantee)
-2. **Liquidity locked** forever in pool
-3. **Refunds always available** if failed
-4. **No price manipulation** possible during auction
-5. **MEV resistant** through auction design
+2. **Refunds always available** if failed
+3. **No price manipulation** possible during auction
+4. **MEV resistant** through auction design
 
 ## Key Invariants (NEVER BREAK THESE)
 
@@ -62,7 +61,6 @@ DEPLOYED → ACTIVE (5000 blocks) → SUCCESS → LIQUIDITY_ADDED
 
 ## Common Pitfalls
 
-- **Don't** assume block.number increments by 1 (can skip blocks)
 - **Don't** use floating point math (everything in uint256)
 - **Don't** forget to check hook permissions flags
 - **Don't** modify core auction logic without updating tests
@@ -76,7 +74,6 @@ DEPLOYED → ACTIVE (5000 blocks) → SUCCESS → LIQUIDITY_ADDED
 
 ## Notes for Frontend Integration
 
-- Users need 2 transactions: approve() then deposit()
 - Show real-time price updates (block-based)
 - Clear success/failure state indication
 - LP claim might be separate transaction
