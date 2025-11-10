@@ -140,6 +140,7 @@ contract LGEHook is BaseHook {
 
     function deposit(uint256 amountOfTokens) external payable {
         if (isLgeFinished) revert LGEFinished();
+        if (block.number > startBlock + STREAM_BLOCKS) revert LGEFinished();
 
         uint256 cap = token.cap();
         uint256 ethExpected = LGECalculationsLibrary.calculateEthNeeded(
