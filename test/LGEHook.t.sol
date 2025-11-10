@@ -43,10 +43,8 @@ contract LGEHookTest is Test, PosmTestSetup {
 
     uint256 startBlock;
 
-    uint256 minTokenPrice = 20_000_000_000;
-    uint256 maxTokenPrice = 15_000_000_000;
-
-    uint256 constant TOKEN_CAP = 17745440000e18;
+    uint256 constant TOKEN_CAP = 1_774_544e18;
+    uint256 constant TOTAL_BLOCKS = 3600;
 
     function setUp() public {
         deployFreshManagerAndRouters();
@@ -104,9 +102,7 @@ contract LGEHookTest is Test, PosmTestSetup {
             address(lpm),
             address(permit2),
             tokenAddressComputed,
-            startBlock,
-            minTokenPrice,
-            maxTokenPrice
+            startBlock
         );
 
         (, bytes32 salt) = HookMiner.find(
@@ -116,8 +112,6 @@ contract LGEHookTest is Test, PosmTestSetup {
             constructorArgs
         );
 
-        config.hookConfig.minTokenPrice = minTokenPrice;
-        config.hookConfig.maxTokenPrice = maxTokenPrice;
         config.hookConfig.hookSalt = salt;
         config.hookConfig.startBlock = startBlock;
 
@@ -127,17 +121,19 @@ contract LGEHookTest is Test, PosmTestSetup {
     function calculateETHNeeded(
         uint256 tokenAmount
     ) internal view returns (uint256) {
+        uint256 minTokenPrice = LGECalculationsLibrary.MIN_TOKEN_PRICE;
+        uint256 maxTokenPrice = LGECalculationsLibrary.MAX_TOKEN_PRICE;
+
         uint256 ethPerToken = LGECalculationsLibrary.calculateCurrentTokenPrice(
-            minTokenPrice,
-            maxTokenPrice,
             block.number,
             startBlock
         );
+
         return (tokenAmount / ethPerToken) * 2;
     }
 
     function test_depositSuccess() public {
-        uint256 tokenAmount = 3_549_088e18;
+        uint256 tokenAmount = 549_088e18;
         uint256 ethNeeded = calculateETHNeeded(tokenAmount);
         hoax(user);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
@@ -152,7 +148,7 @@ contract LGEHookTest is Test, PosmTestSetup {
     }
 
     function test_depositInvalidPriceRevert() public {
-        uint256 tokenAmount = 3_549_088e18;
+        uint256 tokenAmount = 549_088e18;
         uint256 ethNeeded = calculateETHNeeded(tokenAmount);
         hoax(user);
         vm.expectRevert(LGEHook.InvalidPrice.selector);
@@ -206,7 +202,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         vm.roll(startBlock + 100);
         uint256 earlyPrice = calculateETHNeeded(tokenAmount);
 
-        vm.roll(startBlock + 4000);
+        vm.roll(startBlock + 3000);
         uint256 latePrice = calculateETHNeeded(tokenAmount);
 
         console.log("earlyPrice:", earlyPrice);
@@ -235,7 +231,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         hoax(user);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
 
-        vm.roll(startBlock + 5000);
+        vm.roll(startBlock + 3600);
         uint256 ethNeeded1 = calculateETHNeeded(tokenAmount);
         hoax(user2);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded1}(tokenAmount);
@@ -252,7 +248,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         hoax(user);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
 
-        vm.roll(startBlock + 5000);
+        vm.roll(startBlock + TOTAL_BLOCKS);
         uint256 ethNeeded1 = calculateETHNeeded(tokenAmount);
         hoax(user2);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded1}(tokenAmount);
@@ -277,7 +273,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         hoax(user);
         LGEHook(payable(hookAddress)).deposit{value: ethNeeded}(tokenAmount);
 
-        vm.roll(startBlock + 4999);
+        vm.roll(startBlock + TOTAL_BLOCKS - 1);
         vm.prank(user);
         vm.expectRevert(LGEHook.WithdrawTooEarly.selector);
         LGEHook(payable(hookAddress)).withdraw();
@@ -393,7 +389,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         vm.prank(user3);
         LGEHook(payable(hookAddress)).deposit{value: eth3}(tokensPerUser);
 
-        vm.roll(startBlock + 5000);
+        vm.roll(startBlock + TOTAL_BLOCKS);
         uint256 eth4 = calculateETHNeeded(tokensPerUser);
         vm.deal(user4, eth4);
         vm.prank(user4);

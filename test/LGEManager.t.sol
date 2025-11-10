@@ -66,16 +66,13 @@ contract LGEManagerTest is Test, Deployers {
             hashInitCode(type(LGEToken).creationCode, tokenConstructorArgs),
             address(lgeManager)
         );
-        console.log("address from the tests: ", tokenAddress);
 
         bytes memory constructorArgs = abi.encode(
             address(manager),
             address(this),
             address(this),
             tokenAddress,
-            startBlock,
-            100000000000000,
-            200000000000000
+            startBlock
         );
 
         (, bytes32 salt) = HookMiner.find(
@@ -86,8 +83,6 @@ contract LGEManagerTest is Test, Deployers {
         );
 
         LGEManager.HookConfig memory hookConfig = LGEManager.HookConfig({
-            minTokenPrice: 100000000000000,
-            maxTokenPrice: 200000000000000,
             hookSalt: salt,
             startBlock: startBlock
         });

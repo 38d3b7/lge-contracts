@@ -66,10 +66,13 @@ contract LGEHook is BaseHook {
         bool hasClaimed;
     }
 
-    uint256 public constant STREAM_BLOCKS = 5000;
-    uint256 public constant TOTAL_BLOCKS = 6000;
-    int24 public constant TICK_SPACING = 1;
+    // ====== UNICHAIN SEPOLIA VALUES ======
+    uint256 public constant STREAM_BLOCKS = 3600;
+    uint256 public constant TOTAL_BLOCKS = 4600;
+
     uint24 public constant FEE = 10000;
+
+    int24 public constant TICK_SPACING = 1;
     int24 public constant MIN_TICK = TickMath.MIN_TICK;
     int24 public constant MAX_TICK = TickMath.MAX_TICK;
 
@@ -78,8 +81,6 @@ contract LGEHook is BaseHook {
     LGEToken public immutable token;
 
     uint256 public immutable startBlock;
-    uint256 public immutable minTokenPrice;
-    uint256 public immutable maxTokenPrice;
 
     PoolKey public poolKey;
     mapping(address => UserState) public userStates;
@@ -100,16 +101,12 @@ contract LGEHook is BaseHook {
         address positionManager_,
         address permit2_,
         address token_,
-        uint256 startBlock_,
-        uint256 minTokenPrice_,
-        uint256 maxTokenPrice_
+        uint256 startBlock_
     ) BaseHook(IPoolManager(poolManager_)) {
         token = LGEToken(token_);
         positionManager = IPositionManager(positionManager_);
         permit2 = IAllowanceTransfer(permit2_);
         startBlock = startBlock_;
-        minTokenPrice = minTokenPrice_;
-        maxTokenPrice = maxTokenPrice_;
     }
 
     function getHookPermissions()
@@ -146,8 +143,6 @@ contract LGEHook is BaseHook {
 
         uint256 cap = token.cap();
         uint256 ethExpected = LGECalculationsLibrary.calculateEthNeeded(
-            minTokenPrice,
-            maxTokenPrice,
             block.number,
             startBlock,
             amountOfTokens
@@ -189,18 +184,19 @@ contract LGEHook is BaseHook {
                     tickSpacing: TICK_SPACING,
                     hooks: IHooks(address(this))
                 });
+
+                totalEthToLiquidity = address(this).balance / 2;
+
                 uint256 averagePrice = FullMath.mulDiv(
                     cap,
                     2,
-                    address(this).balance
+                    totalEthToLiquidity
                 );
                 initialSqrtPriceX96 = LGECalculationsLibrary.getSqrtPrice(
                     averagePrice
                 );
 
                 token.mint(address(this), cap);
-
-                totalEthToLiquidity = address(this).balance / 2;
 
                 uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
                     initialSqrtPriceX96,

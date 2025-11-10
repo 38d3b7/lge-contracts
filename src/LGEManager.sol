@@ -27,8 +27,6 @@ contract LGEManager {
     }
 
     struct HookConfig {
-        uint256 minTokenPrice;
-        uint256 maxTokenPrice;
         bytes32 hookSalt;
         uint256 startBlock;
     }
@@ -74,9 +72,7 @@ contract LGEManager {
                 _positionManager,
                 _permit2,
                 tokenAddress,
-                config.hookConfig.startBlock,
-                config.hookConfig.minTokenPrice,
-                config.hookConfig.maxTokenPrice
+                config.hookConfig.startBlock
             )
         );
 

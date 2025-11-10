@@ -6,22 +6,23 @@ import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 library LGECalculationsLibrary {
-    uint256 private constant TOTAL_BLOCKS = 5000;
+    // ====== UNICHAIN SEPOLIA VALUES ======
+    uint256 private constant TOTAL_BLOCKS = 3600;
+    uint256 public constant MIN_TOKEN_PRICE = 1000000000;
+    uint256 public constant MAX_TOKEN_PRICE = 4000000000;
 
     function calculateCurrentTokenPrice(
-        uint256 minTokenPrice,
-        uint256 maxTokenPrice,
         uint256 currentBlock,
         uint256 startBlock
     ) public pure returns (uint256) {
         if (currentBlock >= startBlock + TOTAL_BLOCKS) {
-            return maxTokenPrice;
+            return MAX_TOKEN_PRICE;
         }
 
         return
-            maxTokenPrice +
-            (((minTokenPrice - maxTokenPrice) * (currentBlock - startBlock)) /
-                TOTAL_BLOCKS);
+        MIN_TOKEN_PRICE +
+                (((MAX_TOKEN_PRICE - MIN_TOKEN_PRICE) * (currentBlock - startBlock)) /
+                    TOTAL_BLOCKS);
         // return
         //     uint256(
         //         (((int256(minTokenPrice) - int256(maxTokenPrice)) *
@@ -31,15 +32,11 @@ library LGECalculationsLibrary {
     }
 
     function calculateEthNeeded(
-        uint256 minTokenPrice,
-        uint256 maxTokenPrice,
         uint256 currentBlock,
         uint256 startBlock,
         uint256 amountOfTokens
     ) external pure returns (uint256 ethExpected) {
         uint256 ethPerToken = calculateCurrentTokenPrice(
-            minTokenPrice,
-            maxTokenPrice,
             currentBlock,
             startBlock
         );

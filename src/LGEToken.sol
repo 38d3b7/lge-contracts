@@ -7,7 +7,7 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {ERC20Capped} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 
 contract LGEToken is ERC20, ERC20Burnable, ERC20Capped {
-    uint256 public constant TOTAL_SUPPLY = 17_745_440_000e18;
+    uint256 public constant TOTAL_SUPPLY = 1_774_544e18;
 
     address private _admin;
     address private _factory;
