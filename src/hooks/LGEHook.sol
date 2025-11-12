@@ -38,6 +38,7 @@ contract LGEHook is BaseHook {
     error InvalidPrice();
     error InvalidAmount();
     error AlreadyClaimed();
+    error TooManyTokens();
 
     event Deposited(
         address indexed user,
@@ -148,6 +149,8 @@ contract LGEHook is BaseHook {
             startBlock,
             amountOfTokens
         );
+
+        if (totalTokensClaimed + amountOfTokens > cap) revert TooManyTokens();
 
         if (msg.value < ethExpected) revert InvalidPrice();
         if (msg.value > ethExpected) {
