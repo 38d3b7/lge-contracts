@@ -1,5 +1,7 @@
 # LGE Project Context for Development
 
+The product this hook is being built toward is `PRODUCT.md` at the workspace root. This file describes the hook as it is.
+
 ## Quick Reference
 This is a Token Generation Event (TGE) system using a Uniswap v4 hook. It is a liquidity-first idea (Uniswap LP) and therefore called LGE (Liquidity Generation Event). If the LGE fails, users get 100% refund. If it succeeds, a liquidity pool is created automatically and participants can claim their LP tokens.
 

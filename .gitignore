@@ -11,9 +11,6 @@ broadcast/
 # Docs
 docs/
 
-# Deployments
-script/
-
 # Dotenv file
 .env
 

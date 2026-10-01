@@ -64,6 +64,26 @@ Current test coverage is ~80%. The main tests are located in the `test` director
 |--|--|
 | LGEManager | 0x80b151Bd4Ed017692F395E2F0395f0c84071A56B |
 | LGECalculationsLibrary | 0x74C6B2321BeD36FB92E9c88fc33D2A77ED7bBe57 |
+
+**Arc Testnet (chain ID 5042002, verified on Blockscout) — built with via_ir + optimizer (LGEManager exceeds the 24KB limit unoptimized)**
+| Contract Name | Contract Address |
+|--|--|
+| LGEManager | [0x0aa1421add6b810a0d99541fb13501948bdcdb7a](https://explorer.testnet.arc.io/address/0x0aa1421add6b810a0d99541fb13501948bdcdb7a) |
+| LGECalculationsLibrary | [0x23f7ab13a4aBc7670E40B663872f2A976bF3ea96](https://explorer.testnet.arc.io/address/0x23f7ab13a4aBc7670E40B663872f2A976bF3ea96) |
+| HookMinerWrapper | [0x9787190430d32c70c2787af01353a6193cf8ef51](https://explorer.testnet.arc.io/address/0x9787190430d32c70c2787af01353a6193cf8ef51) |
+
+Verification note: the on-chain builds were compiled by solc 0.8.28 (foundry
+auto-detect at deploy time), while a fresh local build today resolves 0.8.26 —
+`forge verify-contract` with default settings will mismatch. Verify via the
+Blockscout v2 standard-input endpoint with `v0.8.28+commit.7893614a`; the
+library was deployed without via_ir/optimizer, LGEManager with via_ir +
+optimizer (200 runs) + the library link. `BLOCKSCOUT_API_KEY` goes in `.env`
+(see foundry.toml `[etherscan]`).
+
+Arc v4 infrastructure (official Uniswap deployment, same addresses as Arc mainnet):
+PoolManager `0x8366a39CC670B4001A1121B8F6A443A643e40951`,
+PositionManager `0x6049c9a0e26405C0985f9E3685C87d0aE917f82B`,
+Permit2 `0x000000000022D473030F116dDEE9F6B43aC78BA3`.
 ## License
 MIT
 

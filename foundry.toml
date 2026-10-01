@@ -7,7 +7,18 @@ out = "out"
 # solc_version = "0.8.26"
 auto_detect_solc = true
 src = "src"
-via_ir = false
+via_ir = true
+optimizer = true
+optimizer_runs = 200
 
 [lint]
 exclude_lints = ["screaming-snake-case-immutable", "screaming-snake-case-const"]
+
+[rpc_endpoints]
+arc_testnet = "https://rpc.testnet.arc.io"
+
+# Verification on the hosted Blockscout instance. The hosted API rate-limits
+# anonymous verification - set BLOCKSCOUT_API_KEY (https://dev.blockscout.com)
+# in .env; foundry loads .env and interpolates it here.
+[etherscan]
+arc_testnet = { key = "${BLOCKSCOUT_API_KEY}", url = "https://explorer.testnet.arc.io/api", chain = 5042002 }
