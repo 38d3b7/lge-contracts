@@ -1,5 +1,5 @@
 // SPDX-License-Identifier:
-pragma solidity ^0.8.26;
+pragma solidity =0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -7,8 +7,6 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {ERC20Capped} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 
 contract LGEToken is ERC20, ERC20Burnable, ERC20Capped {
-    uint256 public constant TOTAL_SUPPLY = 1_774_544e18;
-
     address private _admin;
     address private _factory;
     address private _hook;
@@ -30,8 +28,9 @@ contract LGEToken is ERC20, ERC20Burnable, ERC20Capped {
         address admin_,
         string memory image_,
         string memory metadata_,
-        address factory_
-    ) ERC20(name_, symbol_) ERC20Capped(TOTAL_SUPPLY) {
+        address factory_,
+        uint256 cap_
+    ) ERC20(name_, symbol_) ERC20Capped(cap_) {
         _admin = admin_;
         _image = image_;
         _metadata = metadata_;
@@ -80,6 +79,10 @@ contract LGEToken is ERC20, ERC20Burnable, ERC20Capped {
 
     function admin() external view returns (address) {
         return _admin;
+    }
+
+    function hook() external view returns (address) {
+        return _hook;
     }
 
     function imageUrl() external view returns (string memory) {
