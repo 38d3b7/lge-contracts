@@ -32,13 +32,7 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
     TransparentUpgradeableProxy proxy;
     IPositionDescriptor proxyAsImplementation;
     HookSavesDelta hook;
-    address hookAddr =
-        address(
-            uint160(
-                Hooks.AFTER_ADD_LIQUIDITY_FLAG |
-                    Hooks.AFTER_REMOVE_LIQUIDITY_FLAG
-            )
-        );
+    address hookAddr = address(uint160(Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG));
 
     WETH wethImpl = new WETH();
     IWETH9 public _WETH9;
@@ -46,16 +40,12 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
     address governance = address(0xABCD);
 
     HookModifyLiquidities hookModifyLiquidities;
-    address hookModifyLiquiditiesAddr =
-        address(
-            uint160(
-                Hooks.BEFORE_SWAP_FLAG |
-                    Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-                    Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
-                    Hooks.AFTER_ADD_LIQUIDITY_FLAG |
-                    Hooks.AFTER_REMOVE_LIQUIDITY_FLAG
-            )
-        );
+    address hookModifyLiquiditiesAddr = address(
+        uint160(
+            Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.AFTER_ADD_LIQUIDITY_FLAG | Hooks.AFTER_REMOVE_LIQUIDITY_FLAG
+        )
+    );
 
     PoolKey wethKey;
 
@@ -69,9 +59,7 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
     function deployPosmHookModifyLiquidities() public {
         HookModifyLiquidities impl = new HookModifyLiquidities();
         vm.etch(hookModifyLiquiditiesAddr, address(impl).code);
-        hookModifyLiquidities = HookModifyLiquidities(
-            hookModifyLiquiditiesAddr
-        );
+        hookModifyLiquidities = HookModifyLiquidities(hookModifyLiquiditiesAddr);
 
         // set posm address since constructor args are not easily copied by vm.etch
         hookModifyLiquidities.setAddresses(lpm, permit2);
@@ -88,12 +76,7 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
         _WETH9 = deployWETH();
         proxyAsImplementation = deployDescriptor(poolManager, "ETH");
         lpm = Deploy.positionManager(
-            address(poolManager),
-            address(permit2),
-            100_000,
-            address(proxyAsImplementation),
-            address(_WETH9),
-            hex"03"
+            address(poolManager), address(permit2), 100_000, address(proxyAsImplementation), address(_WETH9), hex"03"
         );
     }
 
@@ -103,22 +86,9 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
         return IWETH9(wethAddr);
     }
 
-    function deployDescriptor(
-        IPoolManager poolManager,
-        bytes32 label
-    ) internal returns (IPositionDescriptor) {
-        positionDescriptor = Deploy.positionDescriptor(
-            address(poolManager),
-            address(_WETH9),
-            label,
-            hex"00"
-        );
-        proxy = Deploy.transparentUpgradeableProxy(
-            address(positionDescriptor),
-            governance,
-            "",
-            hex"03"
-        );
+    function deployDescriptor(IPoolManager poolManager, bytes32 label) internal returns (IPositionDescriptor) {
+        positionDescriptor = Deploy.positionDescriptor(address(poolManager), address(_WETH9), label, hex"00");
+        proxy = Deploy.transparentUpgradeableProxy(address(positionDescriptor), governance, "", hex"03");
         return IPositionDescriptor(address(proxy));
     }
 
@@ -135,17 +105,9 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
     function approvePosmCurrency(Currency currency) internal {
         // Because POSM uses permit2, we must execute 2 permits/approvals.
         // 1. First, the caller must approve permit2 on the token.
-        IERC20(Currency.unwrap(currency)).approve(
-            address(permit2),
-            type(uint256).max
-        );
+        IERC20(Currency.unwrap(currency)).approve(address(permit2), type(uint256).max);
         // 2. Then, the caller must approve POSM as a spender of permit2. TODO: This could also be a signature.
-        permit2.approve(
-            Currency.unwrap(currency),
-            address(lpm),
-            type(uint160).max,
-            type(uint48).max
-        );
+        permit2.approve(Currency.unwrap(currency), address(lpm), type(uint160).max, type(uint48).max);
     }
 
     // Does the same approvals as approvePosm, but for a specific address.
@@ -165,33 +127,17 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
         token.mint(to, STARTING_USER_BALANCE);
     }
 
-    function initPoolUnsorted(
-        Currency currencyA,
-        Currency currencyB,
-        IHooks hooks,
-        uint24 fee,
-        uint160 sqrtPriceX96
-    ) internal returns (PoolKey memory poolKey) {
-        (Currency _currency0, Currency _currency1) = SortTokens.sort(
-            MockERC20(Currency.unwrap(currencyA)),
-            MockERC20(Currency.unwrap(currencyB))
-        );
+    function initPoolUnsorted(Currency currencyA, Currency currencyB, IHooks hooks, uint24 fee, uint160 sqrtPriceX96)
+        internal
+        returns (PoolKey memory poolKey)
+    {
+        (Currency _currency0, Currency _currency1) =
+            SortTokens.sort(MockERC20(Currency.unwrap(currencyA)), MockERC20(Currency.unwrap(currencyB)));
 
-        (poolKey, ) = initPool(
-            _currency0,
-            _currency1,
-            hooks,
-            fee,
-            sqrtPriceX96
-        );
+        (poolKey,) = initPool(_currency0, _currency1, hooks, fee, sqrtPriceX96);
     }
 
-    function permit(
-        uint256 privateKey,
-        uint256 tokenId,
-        address operator,
-        uint256 nonce
-    ) internal {
+    function permit(uint256 privateKey, uint256 tokenId, address operator, uint256 nonce) internal {
         bytes32 digest = getDigest(operator, tokenId, 1, block.timestamp + 1);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
@@ -201,25 +147,16 @@ contract PosmTestSetup is Test, Deployers, DeployPermit2, LiquidityOperations {
         lpm.permit(operator, tokenId, block.timestamp + 1, nonce, signature);
     }
 
-    function getDigest(
-        address spender,
-        uint256 tokenId,
-        uint256 nonce,
-        uint256 deadline
-    ) internal view returns (bytes32 digest) {
+    function getDigest(address spender, uint256 tokenId, uint256 nonce, uint256 deadline)
+        internal
+        view
+        returns (bytes32 digest)
+    {
         digest = keccak256(
             abi.encodePacked(
                 "\x19\x01",
                 lpm.DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        ERC721PermitHash.PERMIT_TYPEHASH,
-                        spender,
-                        tokenId,
-                        nonce,
-                        deadline
-                    )
-                )
+                keccak256(abi.encode(ERC721PermitHash.PERMIT_TYPEHASH, spender, tokenId, nonce, deadline))
             )
         );
     }

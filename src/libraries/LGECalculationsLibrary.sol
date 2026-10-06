@@ -1,47 +1,51 @@
-// SPDX-License-Identifier:
-pragma solidity ^0.8.26;
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.26;
 
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 library LGECalculationsLibrary {
-    // ====== UNICHAIN SEPOLIA VALUES ======
-    uint256 private constant TOTAL_BLOCKS = 3600;
-    uint256 public constant MIN_TOKEN_PRICE = 1000000000;
-    uint256 public constant MAX_TOKEN_PRICE = 4000000000;
-
     function calculateCurrentTokenPrice(
         uint256 currentBlock,
-        uint256 startBlock
+        uint256 startBlock,
+        uint256 streamBlocks,
+        uint256 minTokenPrice,
+        uint256 maxTokenPrice
     ) public pure returns (uint256) {
-        if (currentBlock >= startBlock + TOTAL_BLOCKS) {
-            return MAX_TOKEN_PRICE;
+        if (currentBlock <= startBlock) {
+            return minTokenPrice;
         }
-
+        if (currentBlock >= startBlock + streamBlocks) {
+            return maxTokenPrice;
+        }
         return
-        MIN_TOKEN_PRICE +
-                (((MAX_TOKEN_PRICE - MIN_TOKEN_PRICE) * (currentBlock - startBlock)) /
-                    TOTAL_BLOCKS);
-        // return
-        //     uint256(
-        //         (((int256(minTokenPrice) - int256(maxTokenPrice)) *
-        //             int256(currentBlock - startBlock)) / int256(TOTAL_BLOCKS)) +
-        //             int256(minTokenPrice)
-        //     );
+            minTokenPrice +
+            (((maxTokenPrice - minTokenPrice) * (currentBlock - startBlock)) /
+                streamBlocks);
     }
 
-    function calculateEthNeeded(
+    function calculateUsdcNeeded(
         uint256 currentBlock,
         uint256 startBlock,
+        uint256 streamBlocks,
+        uint256 minTokenPrice,
+        uint256 maxTokenPrice,
         uint256 amountOfTokens
-    ) external pure returns (uint256 ethExpected) {
-        uint256 ethPerToken = calculateCurrentTokenPrice(
+    ) external pure returns (uint256 usdcExpected) {
+        uint256 tokensPerUsdc = calculateCurrentTokenPrice(
             currentBlock,
-            startBlock
+            startBlock,
+            streamBlocks,
+            minTokenPrice,
+            maxTokenPrice
         );
-        uint256 ethForTokenAmount = amountOfTokens / ethPerToken;
-        ethExpected = ethForTokenAmount * 2;
+        // tokensPerUsdc is a raw wei-to-wei ratio (token-wei per usdc-wei;
+        // both legs are 18-dec so "20000 tokens per USDC" is simply 20000).
+        // Round UP — floor division undercharges, and quotes exactly 0 for
+        // buys smaller than the ratio (free tokens).
+        uint256 usdcForTokenAmount = (amountOfTokens + tokensPerUsdc - 1) / tokensPerUsdc;
+        usdcExpected = usdcForTokenAmount * 2;
     }
 
     function getSqrtPrice(

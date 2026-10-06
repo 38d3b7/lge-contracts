@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity =0.8.26;
 
 import {Vm} from "forge-std/Vm.sol";
 import {IPositionDescriptor} from "@uniswap/v4-periphery/src/interfaces/IPositionDescriptor.sol";
@@ -107,5 +107,17 @@ library Deploy {
         assembly {
             descriptor := create2(0, add(initcode, 0x20), mload(initcode), salt)
         }
+    }
+
+    address constant LGE_CALCULATIONS_LIBRARY =
+        0xD4C7B3564E02f2fD8c9cB3f4aAE55DA4E9A1a559;
+
+    function lgeCalculationsLibrary() internal {
+        vm.etch(
+            LGE_CALCULATIONS_LIBRARY,
+            vm.getDeployedCode(
+                "LGECalculationsLibrary.sol:LGECalculationsLibrary"
+            )
+        );
     }
 }
