@@ -14,11 +14,16 @@ This is a Token Generation Event (TGE) system using a Uniswap v4 hook. It is a l
 ### Capital Split (Critical)
 When users deposit ETH:
 - **50% → Liquidity Pool**: Paired with tokens for Uniswap v4
-- **50% → Project Treasury**: For operations/development
+- **50% → Project Treasury**: Credited to the agent's `InferenceEscrow` on success
 
 ### Success/Failure Logic
-- **SUCCESS**: All 17,745,440,000 tokens sold → Create pool → Users get LP tokens
-- **FAILURE**: Not all tokens sold → Users withdraw ETH (100% refund)
+- **SUCCESS**: Whole sale supply sold → Create pool → Users get LP tokens
+- **FAILURE**: Sale supply not sold out → Users withdraw ETH (100% refund)
+
+### Project Reserve
+- The agent sets `reserveBps` at launch (max 50% of the cap)
+- Sale supply = cap − reserve; only the sale supply is sold and paired into the pool
+- On success the reserve goes straight to `VestingVault` as the agent's grant; the hook buys nothing from the pool
 
 ## Critical Integration Points
 
@@ -54,7 +59,7 @@ DEPLOYED → ACTIVE (5000 blocks) → SUCCESS → LIQUIDITY_ADDED
 
 ## Key Invariants (NEVER BREAK THESE)
 
-1. `totalTokensSold <= TOKEN_CAP`
+1. `totalTokensSold <= saleSupply` (cap − reserve)
 2. `if (!success) then withdrawableETH[user] == depositedETH[user]`
 3. `poolLiquidity == 0.5 * totalETHRaised` (minus precision loss)
 4. `priceAtBlockN >= priceAtBlockN+1` (price only decreases)

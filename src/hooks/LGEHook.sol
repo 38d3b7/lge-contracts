@@ -62,7 +62,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
     error InvalidSplits();
     error FeeTooHigh();
     error Unauthorized();
-    error NoPendingBuy();
+    error ReserveTooHigh();
     error LGENotSuccessful();
 
     event Deposited(
@@ -99,7 +99,6 @@ contract LGEHook is BaseHook, SafeNativeSender {
     event AgentFeesClaimed(address indexed agent, uint256 amount);
     event ProtocolFeesSwept(uint256 amount);
     event AgentRotated(address indexed oldAgent, address indexed newAgent);
-    event TreasuryBuyExecuted(uint256 tokensBought, uint256 usdcSpent, uint256 remaining);
     event TreasuryEscrowed(uint256 amount);
     event SplitsProposed(bytes32 indexed splitsHash, uint64 effectiveAt);
     event SplitsApplied();
@@ -130,6 +129,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
         uint256 maxTokenPrice;
         uint256 exitThreshold;
         uint24 feeBps;
+        uint16 reserveBps;
         uint64 vestingCliff;
         uint64 vestingDuration;
     }
@@ -142,7 +142,6 @@ contract LGEHook is BaseHook, SafeNativeSender {
     uint24 public constant FEE = 0;
     uint24 public constant MAX_TOTAL_FEE_BPS = 300;
     uint256 public constant BPS = 10_000;
-    uint256 public constant BUY_BPS = 500;
     uint256 public constant MIN_SWEEP = 25e18;
     uint256 public constant SCALE = 1e18;
     uint64 public constant SPLITS_TIMELOCK = 48 hours;
@@ -165,6 +164,8 @@ contract LGEHook is BaseHook, SafeNativeSender {
     uint256 public immutable maxTokenPrice;
     uint256 public immutable exitThreshold;
     uint256 public immutable cap;
+    uint256 public immutable reserve; // vested to the agent, never sold
+    uint256 public immutable saleSupply; // cap - reserve
     uint24 public immutable feeBps;
     uint64 public immutable vestingCliff;
     uint64 public immutable vestingDuration;
@@ -199,9 +200,6 @@ contract LGEHook is BaseHook, SafeNativeSender {
     uint64[30] public feeBucketDay;
     uint256[30] public feeBucketAmt;
 
-    uint256 public treasuryUsdc;
-    uint256 public pendingBuy;
-
     Split[] public splits;
     bytes32 public pendingSplitsHash;
     uint64 public splitsEffectiveAt;
@@ -210,6 +208,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
 
     constructor(HookParams memory p) BaseHook(IPoolManager(p.poolManager)) {
         if (p.feeBps > MAX_TOTAL_FEE_BPS) revert FeeTooHigh();
+        if (p.reserveBps >= BPS) revert ReserveTooHigh();
         if (p.operator == address(0)) revert NotOperator();
         token = LGEToken(p.token);
         positionManager = IPositionManager(p.positionManager);
@@ -228,7 +227,11 @@ contract LGEHook is BaseHook, SafeNativeSender {
         vestingCliff = p.vestingCliff;
         vestingDuration = p.vestingDuration;
 
-        cap = token.cap();
+        uint256 cap_ = token.cap();
+        uint256 reserve_ = (cap_ * p.reserveBps) / BPS;
+        cap = cap_;
+        reserve = reserve_;
+        saleSupply = cap_ - reserve_;
 
         splits.push(Split({to: p.protocol, bps: uint16(BPS)}));
     }
@@ -302,7 +305,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
             amountOfTokens
         );
 
-        if (totalTokensClaimed + amountOfTokens > cap) revert TooManyTokens();
+        if (totalTokensClaimed + amountOfTokens > saleSupply) revert TooManyTokens();
 
         if (msg.value < usdcExpected) revert InvalidPrice();
         uint256 refund = msg.value - usdcExpected;
@@ -325,10 +328,10 @@ contract LGEHook is BaseHook, SafeNativeSender {
 
         if (
             block.number >= (startBlock + streamBlocks) ||
-            totalTokensClaimed == cap
+            totalTokensClaimed == saleSupply
         ) {
             isLgeFinished = true;
-            if (totalTokensClaimed == cap) {
+            if (totalTokensClaimed == saleSupply) {
                 _finalizeSuccess();
             } else {
                 emit LGEFailed();
@@ -352,10 +355,10 @@ contract LGEHook is BaseHook, SafeNativeSender {
         uint256 raised = totalUsdcDeposited;
         totalEthToLiquidity = raised / 2;
         totalUsdcRaised = raised;
-        treasuryUsdc = raised - totalEthToLiquidity;
+        uint256 treasury = raised - totalEthToLiquidity;
         totalActiveWeight = totalEthToLiquidity;
 
-        uint256 averagePrice = cap / totalEthToLiquidity; // tokens per USDC
+        uint256 averagePrice = saleSupply / totalEthToLiquidity; // tokens per USDC
         if (averagePrice == 0) revert InvalidPrice();
         initialSqrtPriceX96 = LGECalculationsLibrary.getSqrtPrice(averagePrice);
 
@@ -366,7 +369,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
             TickMath.getSqrtPriceAtTick(MIN_TICK),
             TickMath.getSqrtPriceAtTick(MAX_TICK),
             totalEthToLiquidity,
-            cap
+            saleSupply
         );
 
         positionTokenId = positionManager.nextTokenId();
@@ -391,7 +394,7 @@ contract LGEHook is BaseHook, SafeNativeSender {
             MAX_TICK,
             liquidity,
             totalEthToLiquidity,
-            cap,
+            saleSupply,
             address(this),
             new bytes(0)
         );
@@ -420,85 +423,19 @@ contract LGEHook is BaseHook, SafeNativeSender {
             liquidity
         );
 
-        try this.treasuryBuy() {} catch {
-            pendingBuy = cap / 20;
-        }
-    }
-
-    function treasuryBuy() external {
-        uint256 target;
-        if (msg.sender == address(this)) {
-            target = cap / 20;
-        } else {
-            if (!isLgeSuccessful) revert LGENotSuccessful();
-            if (pendingBuy == 0) revert NoPendingBuy();
-            target = pendingBuy;
-        }
-        _treasuryBuy(target);
-    }
-
-    function _treasuryBuy(uint256 target) internal {
-        if (target == 0) {
-            _escrowTreasuryRemainder();
-            return;
-        }
-        inHookOp = true;
-        (uint256 usdcIn, uint256 tokensOut) = abi.decode(
-            poolManager.unlock(abi.encode(target)),
-            (uint256, uint256)
-        );
-        inHookOp = false;
-
-        treasuryUsdc -= usdcIn;
-        if (tokensOut > 0) {
-            token.approve(address(vestingVault), tokensOut);
+        if (reserve > 0) {
+            token.approve(address(vestingVault), reserve);
             vestingVault.create(
                 address(token),
                 agent,
-                uint128(tokensOut),
+                reserve.toUint128(),
                 vestingCliff,
                 vestingDuration
             );
         }
-        pendingBuy = target - tokensOut;
-        emit TreasuryBuyExecuted(tokensOut, usdcIn, pendingBuy);
 
-        if (pendingBuy == 0) {
-            _escrowTreasuryRemainder();
-        }
-    }
-
-    function _escrowTreasuryRemainder() internal {
-        uint256 amount = treasuryUsdc;
-        if (amount == 0) return;
-        treasuryUsdc = 0;
-        inferenceEscrow.credit{value: amount}();
-        emit TreasuryEscrowed(amount);
-    }
-
-    function unlockCallback(bytes calldata data) external returns (bytes memory) {
-        if (msg.sender != address(poolManager)) revert NotPoolManager();
-        if (!inHookOp) revert Unauthorized();
-
-        uint256 target = abi.decode(data, (uint256));
-
-        BalanceDelta delta = poolManager.swap(
-            poolKey,
-            SwapParams({
-                zeroForOne: true,
-                amountSpecified: int256(target),
-                sqrtPriceLimitX96: initialSqrtPriceX96 / 2
-            }),
-            ""
-        );
-
-        uint256 usdcIn = uint256(int256(-delta.amount0()));
-        uint256 tokensOut = uint256(int256(delta.amount1()));
-
-        poolManager.settle{value: usdcIn}();
-        poolManager.take(poolKey.currency1, address(this), tokensOut);
-
-        return abi.encode(usdcIn, tokensOut);
+        inferenceEscrow.credit{value: treasury}();
+        emit TreasuryEscrowed(treasury);
     }
 
     function withdraw() external {

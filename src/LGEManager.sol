@@ -43,6 +43,7 @@ contract LGEManager {
         uint256 maxTokenPrice;
         uint256 exitThreshold;
         uint24 feeBps;
+        uint16 reserveBps;
         uint64 vestingCliff;
         uint64 vestingDuration;
         address operator;
@@ -69,8 +70,12 @@ contract LGEManager {
     error AlreadyLaunched();
     error LaunchActive();
     error CliffTooShort();
+    error VestingTooLong();
+    error ReserveTooHigh();
 
     uint64 public constant MIN_VESTING_CLIFF = 365 days;
+    uint64 public constant MAX_VESTING = 3650 days;
+    uint16 public constant MAX_RESERVE_BPS = 5_000;
 
     constructor(
         address poolManager_,
@@ -96,6 +101,11 @@ contract LGEManager {
         address agent = config.tokenConfig.tokenAdmin;
         if (msg.sender != agent) revert NotTokenAdmin();
         if (config.hookConfig.vestingCliff < MIN_VESTING_CLIFF) revert CliffTooShort();
+        if (
+            config.hookConfig.vestingCliff > MAX_VESTING ||
+            config.hookConfig.vestingDuration > MAX_VESTING
+        ) revert VestingTooLong();
+        if (config.hookConfig.reserveBps > MAX_RESERVE_BPS) revert ReserveTooHigh();
 
         LaunchStatus status = statusOf(agent);
         if (status == LaunchStatus.Successful) revert AlreadyLaunched();
@@ -161,6 +171,7 @@ contract LGEManager {
                     maxTokenPrice: config.maxTokenPrice,
                     exitThreshold: config.exitThreshold,
                     feeBps: config.feeBps,
+                    reserveBps: config.reserveBps,
                     vestingCliff: config.vestingCliff,
                     vestingDuration: config.vestingDuration
                 })

@@ -133,6 +133,7 @@ contract LGEHookTest is Test, PosmTestSetup {
     uint256 constant MIN_PRICE = 1e9; // tokens per USDC
     uint256 constant MAX_PRICE = 4e9;
     uint24 constant FEE_BPS = 100;
+    uint16 constant RESERVE_BPS = 500;
     uint256 constant EXIT_THRESHOLD = 1_000e18;
     // 12-month cliff (the launch minimum); duration runs from the grant start,
     // so half unlocks at the cliff and the rest vests linearly to month 24
@@ -144,6 +145,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         uint256 minPrice;
         uint256 maxPrice;
         uint24 feeBps;
+        uint16 reserveBps;
         uint256 exitThreshold;
     }
 
@@ -177,6 +179,7 @@ contract LGEHookTest is Test, PosmTestSetup {
                 minPrice: MIN_PRICE,
                 maxPrice: MAX_PRICE,
                 feeBps: FEE_BPS,
+                reserveBps: RESERVE_BPS,
                 exitThreshold: EXIT_THRESHOLD
             });
     }
@@ -215,6 +218,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         config.hookConfig.minTokenPrice = MIN_PRICE;
         config.hookConfig.maxTokenPrice = MAX_PRICE;
         config.hookConfig.feeBps = FEE_BPS;
+        config.hookConfig.reserveBps = RESERVE_BPS;
         config.hookConfig.vestingCliff = VESTING_CLIFF;
         config.hookConfig.operator = operator;
     }
@@ -241,6 +245,7 @@ contract LGEHookTest is Test, PosmTestSetup {
         config.hookConfig.maxTokenPrice = p.maxPrice;
         config.hookConfig.exitThreshold = p.exitThreshold;
         config.hookConfig.feeBps = p.feeBps;
+        config.hookConfig.reserveBps = p.reserveBps;
         config.hookConfig.vestingCliff = VESTING_CLIFF;
         config.hookConfig.vestingDuration = VESTING_DURATION;
         config.hookConfig.operator = operator;
@@ -288,6 +293,7 @@ contract LGEHookTest is Test, PosmTestSetup {
             maxTokenPrice: p.maxPrice,
             exitThreshold: p.exitThreshold,
             feeBps: p.feeBps,
+            reserveBps: p.reserveBps,
             vestingCliff: VESTING_CLIFF,
             vestingDuration: VESTING_DURATION
         });
@@ -509,8 +515,8 @@ contract LGEHookTest is Test, PosmTestSetup {
     ///      callback passed the stale check and pushed the total past the cap —
     ///      `== cap` was then unreachable and the campaign could only fail.
     function test_depositReentrancyCannotOvershootCap() public {
-        uint256 cap = LGEToken(tokenAddress).cap();
-        uint256 tokensPerUser = cap / 4;
+        uint256 saleSupply = _hook().saleSupply();
+        uint256 tokensPerUser = saleSupply / 4;
 
         vm.roll(startBlock + 1000);
         _depositAs(user, tokensPerUser);
@@ -523,7 +529,7 @@ contract LGEHookTest is Test, PosmTestSetup {
 
         assertTrue(a.reentered()); // the refund callback did fire
         assertFalse(a.innerSucceeded());
-        assertEq(_hook().totalTokensClaimed(), cap);
+        assertEq(_hook().totalTokensClaimed(), saleSupply);
         assertTrue(_hook().isLgeSuccessful());
         assertEq(address(a).balance, 1e12); // refund still delivered
     }
@@ -532,8 +538,8 @@ contract LGEHookTest is Test, PosmTestSetup {
     ///      which also holds parked refund credits and plain donations. Parked
     ///      credits were paired into the pool while still owed to their owner.
     function test_finalizeIgnoresParkedCreditsAndDonations() public {
-        uint256 cap = LGEToken(tokenAddress).cap();
-        uint256 tokensPerUser = cap / 4;
+        uint256 saleSupply = _hook().saleSupply();
+        uint256 tokensPerUser = saleSupply / 4;
         uint256 parked = 1e15;
         uint256 donation = 3e15;
 
@@ -576,48 +582,82 @@ contract LGEHookTest is Test, PosmTestSetup {
         assertEq(address(lpm).balance, 0);
     }
 
-    function test_treasuryBuyOnSuccess() public {
+    function test_reserveVestedAndTreasuryEscrowedOnSuccess() public {
         _reachCapSuccessfully();
 
-        // 5% of supply vested to the agent
+        // the reserve is vested to the agent, exactly
+        uint256 reserve = (TOKEN_CAP * RESERVE_BPS) / 10_000;
+        assertEq(_hook().reserve(), reserve);
+        assertEq(_hook().saleSupply(), TOKEN_CAP - reserve);
         (uint128 total, , , , ) = vestingVault.grants(tokenAddress, tokenAdmin);
-        assertApproxEqAbs(uint256(total), TOKEN_CAP / 20, TOKEN_CAP / 20 / 100 + 2);
+        assertEq(uint256(total), reserve);
+        assertEq(LGEToken(tokenAddress).balanceOf(address(vestingVault)), reserve);
 
-        // remainder credited to the agent's inference escrow
-        assertGt(inferenceEscrow.creditOf(hookAddress), 0);
+        // the whole treasury half is credited to the agent's inference escrow
+        uint256 treasury = _hook().totalUsdcRaised() - _hook().totalEthToLiquidity();
+        assertEq(inferenceEscrow.creditOf(hookAddress), treasury);
 
-        // buy completed atomically; nothing pending
-        assertEq(_hook().pendingBuy(), 0);
-        assertEq(_hook().treasuryUsdc(), 0);
-
+        assertEq(LGEToken(tokenAddress).totalSupply(), TOKEN_CAP);
         // no stranded token tranche left in the hook (dust only)
         assertLt(LGEToken(tokenAddress).balanceOf(hookAddress), TOKEN_CAP / 1000);
     }
 
-    function test_completeTreasuryBuyRevertsWhenNonePending() public {
+    /// The hook buys nothing at success, so the pool sits at the price it was
+    /// initialized with: the average sale price.
+    function test_poolOpensAtAverageSalePrice() public {
         _reachCapSuccessfully();
-        vm.expectRevert(LGEHook.NoPendingBuy.selector);
-        _hook().treasuryBuy();
+
+        (uint160 sqrtPriceX96, , , ) = StateLibrary.getSlot0(manager, _hook().getPoolId());
+        assertEq(
+            sqrtPriceX96,
+            LGECalculationsLibrary.getSqrtPrice(_hook().saleSupply() / _hook().totalEthToLiquidity())
+        );
     }
 
-    /// The treasury buy is a hook-initiated swap: it must never be charged the
-    /// hook fee. The invariant is "no FeeCharged / no booked share", not
-    /// "which layer skipped the callback". `inHookOp` is the hook's own
-    /// skip; some PoolManagers also skip self-initiated callbacks.
-    function test_treasuryBuyBooksNoFee() public {
+    /// The success path must never be charged the hook fee.
+    function test_successBooksNoFee() public {
         vm.recordLogs();
         _reachCapSuccessfully();
 
-        assertEq(_hook().participantFeesBooked(), 0, "participant fees booked by treasury buy");
-        assertEq(_hook().agentAccrued(), 0, "agent fees booked by treasury buy");
-        assertEq(_hook().protocolAccrued(), 0, "protocol fees booked by treasury buy");
+        assertEq(_hook().participantFeesBooked(), 0, "participant fees booked at success");
+        assertEq(_hook().agentAccrued(), 0, "agent fees booked at success");
+        assertEq(_hook().protocolAccrued(), 0, "protocol fees booked at success");
 
         // no FeeCharged log from the success path
         bytes32 sig = keccak256("FeeCharged(uint256,uint256,uint256,uint256)");
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
-            assertFalse(logs[i].topics[0] == sig, "FeeCharged emitted during treasury buy");
+            assertFalse(logs[i].topics[0] == sig, "FeeCharged emitted at success");
         }
+    }
+
+    function test_zeroReserveSucceedsWithoutGrant() public {
+        startBlock = block.number;
+        DeployParams memory p = _defaultParams();
+        p.reserveBps = 0;
+        (tokenAddress, hookAddress) = _relaunchAsNewAgent(p);
+        assertEq(_hook().saleSupply(), TOKEN_CAP);
+        _reachCapSuccessfully();
+
+        assertTrue(_hook().isLgeSuccessful());
+        (uint128 total, , , , ) = vestingVault.grants(tokenAddress, tokenAdmin);
+        assertEq(total, 0);
+        assertEq(LGEToken(tokenAddress).balanceOf(address(vestingVault)), 0);
+        assertEq(
+            inferenceEscrow.creditOf(hookAddress),
+            _hook().totalUsdcRaised() - _hook().totalEthToLiquidity()
+        );
+    }
+
+    /// The reserve is never for sale: the sale stops at cap - reserve.
+    function test_depositBeyondSaleSupplyReverts() public {
+        uint256 tokenAmount = _hook().saleSupply() + 1;
+        vm.roll(startBlock + 1000);
+        uint256 needed = calculateUSDCNeeded(tokenAmount);
+        vm.deal(user, needed);
+        vm.prank(user);
+        vm.expectRevert(LGEHook.TooManyTokens.selector);
+        _hook().deposit{value: needed}(tokenAmount);
     }
 
     function test_LGEFailedPartialCapReached() public {
@@ -1196,6 +1236,55 @@ contract LGEHookTest is Test, PosmTestSetup {
         lgeManager.deployToken(config);
     }
 
+    /// @dev An oversized cliff or duration would only surface at sell-out,
+    ///      where the vault's timestamp math overflows and blocks success.
+    function test_launchRejectsVestingAboveTenYears() public {
+        tokenAdmin = address(0x7777); // no prior launch, so only the vesting rule bites
+        LGEManager.DeploymentConfig memory config = _unminedConfig();
+
+        config.hookConfig.vestingCliff = 3650 days + 1;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.VestingTooLong.selector);
+        lgeManager.deployToken(config);
+
+        config.hookConfig.vestingCliff = type(uint64).max;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.VestingTooLong.selector);
+        lgeManager.deployToken(config);
+
+        config.hookConfig.vestingCliff = 365 days;
+        config.hookConfig.vestingDuration = 3650 days + 1;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.VestingTooLong.selector);
+        lgeManager.deployToken(config);
+
+        // exactly 10 years for both passes the vesting rule (it then fails
+        // later, at CREATE2, only because this config has no mined salt)
+        config.hookConfig.vestingCliff = 3650 days;
+        config.hookConfig.vestingDuration = 3650 days;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.HookDeployFailed.selector);
+        lgeManager.deployToken(config);
+    }
+
+    /// @dev The agent cannot reserve more than half the supply for itself.
+    function test_launchRejectsReserveAboveMax() public {
+        tokenAdmin = address(0x7777); // no prior launch, so only the reserve rule bites
+        LGEManager.DeploymentConfig memory config = _unminedConfig();
+
+        config.hookConfig.reserveBps = 5_001;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.ReserveTooHigh.selector);
+        lgeManager.deployToken(config);
+
+        // exactly 50% passes the reserve rule (it then fails later, at CREATE2,
+        // only because this config has no mined salt)
+        config.hookConfig.reserveBps = 5_000;
+        vm.prank(tokenAdmin);
+        vm.expectRevert(LGEManager.HookDeployFailed.selector);
+        lgeManager.deployToken(config);
+    }
+
     /// @dev Regression for the vesting bypass: only the token's hook may create
     ///      or move that token's grants.
     function test_vaultOnlyTokenHook() public {
@@ -1482,35 +1571,38 @@ contract LGEHookTest is Test, PosmTestSetup {
     }
 
     // ------------------------------------------------------------------
-    // Treasury buy at several raise sizes (DECISIONS.md open question #7)
+    // Reserve at several raise sizes and reserve shares
     // ------------------------------------------------------------------
 
-    function test_treasuryBuyAcrossRaiseSizes() public {
+    function test_reserveAcrossRaiseSizes() public {
         uint256[3] memory caps = [
             uint256(1_000e18),
             uint256(1_774_544e18),
             uint256(10_000_000e18)
         ];
+        uint16[3] memory reserves = [uint16(100), uint16(2_000), uint16(5_000)];
         for (uint256 i; i < 3; ++i) {
             startBlock = block.number;
             DeployParams memory p = _defaultParams();
             p.cap = caps[i];
             p.minPrice = 1e18;
             p.maxPrice = 4e18;
+            p.reserveBps = reserves[i];
             (tokenAddress, hookAddress) = _relaunchAsNewAgent(p);
             _reachCapSuccessfully();
 
+            uint256 reserve = (caps[i] * reserves[i]) / 10_000;
             (uint128 total, , , , ) = vestingVault.grants(
                 tokenAddress,
                 tokenAdmin
             );
-            // the 5% buy fills (nearly) completely at every size
-            assertApproxEqAbs(
-                uint256(total),
-                caps[i] / 20,
-                caps[i] / 20 / 100 + 2
+            assertEq(uint256(total), reserve);
+            assertEq(_hook().totalTokensClaimed(), caps[i] - reserve);
+            assertEq(LGEToken(tokenAddress).totalSupply(), caps[i]);
+            assertEq(
+                inferenceEscrow.creditOf(hookAddress),
+                _hook().totalUsdcRaised() - _hook().totalEthToLiquidity()
             );
-            assertGt(inferenceEscrow.creditOf(hookAddress), 0);
         }
     }
 
@@ -1544,8 +1636,8 @@ contract LGEHookTest is Test, PosmTestSetup {
     }
 
     function _reachCapSuccessfully() internal {
-        uint256 cap = LGEToken(tokenAddress).cap();
-        uint256 tokensPerUser = cap / 4;
+        uint256 saleSupply = _hook().saleSupply();
+        uint256 tokensPerUser = saleSupply / 4;
 
         vm.roll(startBlock + 1000);
         _depositAs(user, tokensPerUser);
