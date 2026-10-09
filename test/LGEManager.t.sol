@@ -104,6 +104,7 @@ contract LGEManagerTest is Test, Deployers {
             maxTokenPrice: 0.01e18,
             exitThreshold: 0,
             feeBps: 100,
+            reserveBps: 500,
             vestingCliff: 365 days, // launch minimum
             vestingDuration: 365 days
         });
@@ -125,6 +126,7 @@ contract LGEManagerTest is Test, Deployers {
             maxTokenPrice: params.maxTokenPrice,
             exitThreshold: params.exitThreshold,
             feeBps: params.feeBps,
+            reserveBps: params.reserveBps,
             vestingCliff: params.vestingCliff,
             vestingDuration: params.vestingDuration,
             operator: params.operator

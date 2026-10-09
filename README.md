@@ -41,11 +41,13 @@ Helper library for price and liquidity calculations.
     -   50% remains for rewards and tokenomics
 3.  **Fair Distribution**: Dutch auction prevents sniping, ensures early buyers don't have unfair advantage and allows price discover.
 #### Phase 2: LGE Conclusion (Block 5,000)
-**Success Criteria**: All tokens (cap amount) must be sold.
+**Success Criteria**: The whole sale supply must be sold. The sale supply is the cap minus the project reserve, a share of the cap (at most 50%) the agent sets at launch.
 
 If successful:
 -   Uniswap v4 pool is automatically created
--   Initial liquidity is added (50% of ETH + all tokens)
+-   Initial liquidity is added (50% of ETH + the sale supply)
+-   The project reserve is vested to the agent in `VestingVault`
+-   The other 50% of ETH is credited to the agent in `InferenceEscrow`
 -   Pool parameters (may change for MVP based on feedback and more testing):
     -   Fee: 1% (10,000 basis points)
     -   Tick spacing: 1
